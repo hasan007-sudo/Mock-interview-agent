@@ -1,36 +1,55 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Mock Interview Agent
 
-## Getting Started
+A realistic mock technical interview app: a LiveKit voice agent interviews the candidate over audio, with two video tiles (candidate camera + interviewer placeholder). When the interviewer asks a coding or design question, the Python agent calls a tool that publishes a data-channel event, and the frontend opens a **Monaco code editor** (Java / JavaScript / Python) or an **Excalidraw whiteboard** in real time. Submitted code — and the whiteboard exported as an image — are evaluated by an LLM via OpenRouter directly from this app (`/api/evaluate`); nothing is sent back to the voice agent.
 
-First, run the development server:
+## How it works
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+Home (name entry + editable questions JSON)
+  └─ POST /api/connection-details
+       ├─ validates questions [{id, text, surface: "verbal"|"code"|"whiteboard", language?}]
+       ├─ RoomServiceClient.createRoom(metadata: { agent_id: "mock_interview",
+       │     questions, prompt_context: { interview_plan, ... } })
+       ├─ AgentDispatchClient.createDispatch(room, LIVEKIT_AGENT_NAME)
+       └─ mints participant token
+Session page
+  ├─ useSession + SessionProvider (@livekit/components-react v2)
+  ├─ RoomEvent.DataReceived → { type: "open_code_editor" | "open_whiteboard" }
+  └─ Submit → POST /api/evaluate (ai SDK + OpenRouter, vision model for whiteboard)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The agent asks the configured questions in order. For questions with `surface: "code"` or `"whiteboard"` it calls the `open_question_editor(question_id)` tool, which publishes the matching data-channel event, and the prompt requires it to tell the candidate the editor is open on their screen and to type/draw there. Questions default to [src/lib/questions.ts](src/lib/questions.ts) and are editable on the home page before starting.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The agent side lives in `intervoo-agents/agent`:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `src/editor_tools.py` — `open_question_editor` (id-based, when metadata has questions) or free-form `open_code_editor` / `open_whiteboard` tools (publish data events)
+- `config/agents.json` — `mock_interview` profile
+- `prompts/interview/v3.md` — interviewer system prompt (drives the `{interview_plan}`)
 
-## Learn More
+## Setup
 
-To learn more about Next.js, take a look at the following resources:
+1. Copy `.env.example` to `.env.local` and fill in the LiveKit credentials (same project as the agent) and an OpenRouter key. `LIVEKIT_AGENT_NAME` must match the worker's `AGENT_NAME`.
+2. Start the agent worker (first run downloads model files):
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+   ```bash
+   cd ../intervoo-agents/agent
+   uv run src/server.py download-files   # once
+   TTS_PROVIDER=sarvam uv run src/server.py dev
+   ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+3. Start the app:
 
-## Deploy on Vercel
+   ```bash
+   bun install
+   bun dev
+   ```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+4. Open http://localhost:3000, enter your name, and allow microphone + camera.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Notes
+
+See [docs/ARCHITECTURAL_DECISIONS.md](docs/ARCHITECTURAL_DECISIONS.md) for the trade-offs behind the library and design choices.
+
+- The candidate tells the interviewer *verbally* when they finish coding — editor content never goes to the agent.
+- The whiteboard is Excalidraw (MIT licensed — free for commercial production use; it replaced tldraw, whose license requires a paid key in production).
+- Monaco loads from the jsDelivr CDN by default.
