@@ -42,6 +42,7 @@ export async function POST(request: Request) {
       agent_id: "mock_interview",
       user_name: name,
       interaction_mode: "auto",
+      screen_feedback_mode: "timer",
       questions,
       prompt_context: {
         agent_name: "Ishita",

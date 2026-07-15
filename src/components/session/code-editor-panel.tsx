@@ -18,10 +18,12 @@ const LANGUAGE_LABELS: Record<SupportedLanguage, string> = {
 export function CodeEditorPanel({
   question,
   initialLanguage,
+  onContentChange,
   onClose,
 }: {
   question: string;
   initialLanguage: SupportedLanguage;
+  onContentChange: () => void;
   onClose: () => void;
 }) {
   const [language, setLanguage] = useState<SupportedLanguage>(initialLanguage);
@@ -73,7 +75,10 @@ export function CodeEditorPanel({
           theme="vs-dark"
           language={language}
           value={code}
-          onChange={(value) => setCode(value ?? "")}
+          onChange={(value) => {
+            setCode(value ?? "");
+            onContentChange();
+          }}
           options={{
             minimap: { enabled: false },
             fontSize: 14,
@@ -91,7 +96,10 @@ export function CodeEditorPanel({
         <div className="flex items-center justify-between gap-3">
           <select
             value={language}
-            onChange={(e) => setLanguage(e.target.value as SupportedLanguage)}
+            onChange={(e) => {
+              setLanguage(e.target.value as SupportedLanguage);
+              onContentChange();
+            }}
             className="rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm text-neutral-200 outline-none"
           >
             {(Object.keys(LANGUAGE_LABELS) as SupportedLanguage[]).map(

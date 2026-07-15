@@ -13,6 +13,12 @@ export type InterviewQuestion = {
 
 export const DEFAULT_QUESTIONS: InterviewQuestion[] = [
   {
+    id: "q4",
+    text: "Write a function that returns the first non-repeating character in a string.",
+    surface: "code",
+    language: "javascript",
+  },
+  {
     id: "q1",
     text: "Tell me about yourself and one project you are proud of.",
     surface: "verbal",
@@ -26,12 +32,6 @@ export const DEFAULT_QUESTIONS: InterviewQuestion[] = [
     id: "q3",
     text: "How does a hash map handle collisions?",
     surface: "verbal",
-  },
-  {
-    id: "q4",
-    text: "Write a function that returns the first non-repeating character in a string.",
-    surface: "code",
-    language: "javascript",
   },
   {
     id: "q5",

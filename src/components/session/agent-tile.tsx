@@ -1,7 +1,8 @@
 "use client";
 
-import { BarVisualizer, useAgent } from "@livekit/components-react";
+import { useAgent } from "@livekit/components-react";
 import { motion, useReducedMotion } from "motion/react";
+import { AgentAudioVisualizerBar } from "@/components/agents-ui/agent-audio-visualizer-bar";
 
 const STATE_LABELS: Record<string, string> = {
   disconnected: "Waiting to join…",
@@ -23,7 +24,7 @@ export function AgentTile({ compact = false }: { compact?: boolean }) {
     : ({ type: "spring", stiffness: 300, damping: 32, mass: 0.8 } as const);
 
   return (
-    <div className="relative flex h-full flex-col items-center justify-center overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900">
+    <div className="session-tile relative flex h-full flex-col items-center justify-center overflow-hidden">
       <motion.div
         layout
         animate={{
@@ -32,25 +33,28 @@ export function AgentTile({ compact = false }: { compact?: boolean }) {
           fontSize: compact ? 18 : 30,
         }}
         transition={transition}
-        className="flex shrink-0 items-center justify-center rounded-full bg-neutral-800 font-semibold text-neutral-300"
+        className="flex shrink-0 items-center justify-center rounded-full border border-sky-300/15 bg-slate-800/80 font-semibold tracking-tight text-slate-100 shadow-[0_0_40px_rgba(56,139,253,0.1)]"
       >
         AI
       </motion.div>
       <motion.div
         layout
-        animate={{ marginTop: compact ? 8 : 24, height: compact ? 32 : 48 }}
+        animate={{ marginTop: compact ? 6 : 18 }}
         transition={transition}
-        className="w-full"
+        className="flex w-full justify-center"
       >
-        <BarVisualizer
+        <AgentAudioVisualizerBar
           state={agent.state}
-          track={agent.microphoneTrack}
+          audioTrack={agent.microphoneTrack}
+          size={compact ? "icon" : "sm"}
           barCount={5}
-          className="agent-visualizer h-full"
+          color="#62A8FF"
+          className={compact ? "gap-1" : "gap-2"}
         />
       </motion.div>
-      <div className="absolute bottom-2 left-3 flex items-center gap-2 text-xs text-neutral-400">
-        <span className="font-medium text-neutral-300">Interviewer</span>
+      <div className="absolute bottom-3 left-4 flex items-center gap-2 text-xs text-slate-400">
+        <span className="font-medium text-slate-200">Interviewer</span>
+        <span className="size-1 rounded-full bg-slate-600" />
         <span>{STATE_LABELS[agent.state] ?? agent.state}</span>
       </div>
     </div>

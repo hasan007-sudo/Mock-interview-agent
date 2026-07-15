@@ -3,7 +3,7 @@
 import "@excalidraw/excalidraw/index.css";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import dynamic from "next/dynamic";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   type Evaluation,
@@ -31,15 +31,18 @@ async function blobToDataUrl(blob: Blob): Promise<string> {
 
 export function WhiteboardPanel({
   question,
+  onContentChange,
   onClose,
 }: {
   question: string;
+  onContentChange: () => void;
   onClose: () => void;
 }) {
   const [excalidrawApi, setExcalidrawApi] =
     useState<ExcalidrawImperativeAPI | null>(null);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
+  const sceneVersionRef = useRef<string | null>(null);
 
   async function handleSubmit() {
     if (!excalidrawApi || isEvaluating) return;
@@ -95,7 +98,22 @@ export function WhiteboardPanel({
       </div>
 
       <div className="relative min-h-0 flex-1">
-        <Excalidraw excalidrawAPI={setExcalidrawApi} />
+        <Excalidraw
+          excalidrawAPI={setExcalidrawApi}
+          onChange={(elements) => {
+            const sceneVersion = elements
+              .map((element) => `${element.id}:${element.version}`)
+              .join(",");
+            if (sceneVersionRef.current === null) {
+              sceneVersionRef.current = sceneVersion;
+              return;
+            }
+            if (sceneVersionRef.current !== sceneVersion) {
+              sceneVersionRef.current = sceneVersion;
+              onContentChange();
+            }
+          }}
+        />
       </div>
 
       <div className="space-y-3 border-t border-neutral-800 px-4 py-3">
