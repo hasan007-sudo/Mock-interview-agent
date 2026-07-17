@@ -2,14 +2,18 @@ import { z } from "zod";
 
 const supportedLanguageSchema = z.enum(["java", "javascript", "python"]);
 const questionSurfaceSchema = z.enum(["verbal", "code", "whiteboard"]);
+const questionAnswerModeSchema = z.enum(["verbal", "surface"]);
 
 export type SupportedLanguage = z.infer<typeof supportedLanguageSchema>;
 
 const interviewQuestionSchema = z.object({
   id: z.string().trim().min(1),
   text: z.string().trim().min(1),
+  spokenText: z.string().trim().min(1).optional(),
   surface: questionSurfaceSchema,
+  answerMode: questionAnswerModeSchema.optional(),
   language: supportedLanguageSchema.optional(),
+  starterCode: z.string().optional(),
 });
 
 const agentDataEventSchema = z.discriminatedUnion("type", [

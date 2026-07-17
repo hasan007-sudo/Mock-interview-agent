@@ -55,31 +55,33 @@ body {
 }
 
 .session-header {
-  border-bottom: 1px solid rgb(148 163 184 / 0.1);
-  background: rgb(7 16 28 / 0.88);
+  border-bottom: 1px solid rgb(196 181 253 / 0.1);
+  background: rgb(13 9 21 / 0.88);
   backdrop-filter: blur(18px);
 }
 
 .session-tile {
-  border: 1px solid rgb(148 163 184 / 0.13);
   border-radius: 1rem;
-  background: #0d1827;
+  background: var(--card);
   box-shadow:
-    0 20px 50px rgb(0 0 0 / 0.2),
-    inset 0 1px 0 rgb(255 255 255 / 0.025);
+    var(--shadow-border),
+    0 20px 50px rgb(0 0 0 / 0.24),
+    inset 0 1px 0 rgb(255 255 255 / 0.03);
 }
 
 .session-footer {
-  border-top: 1px solid rgb(148 163 184 / 0.1);
-  background: rgb(7 16 28 / 0.92);
+  border-top: 1px solid rgb(196 181 253 / 0.1);
+  background: rgb(13 9 21 / 0.92);
   backdrop-filter: blur(18px);
 }
 
 .session-agent-controls {
   width: min(100%, 28rem);
-  border-color: rgb(148 163 184 / 0.16);
-  background: #0d1827;
-  box-shadow: 0 12px 32px rgb(0 0 0 / 0.28);
+  border-color: rgb(196 181 253 / 0.14);
+  background: var(--card);
+  box-shadow:
+    var(--shadow-border),
+    0 12px 32px rgb(0 0 0 / 0.32);
 }
 
 .session-agent-controls > div:last-child {
@@ -153,33 +155,35 @@ body {
 }
 
 :root {
-  --background: #07101c;
-  --foreground: #e7eef9;
-  --card: #0d1827;
-  --card-foreground: #e7eef9;
-  --popover: #101d2e;
-  --popover-foreground: #e7eef9;
-  --primary: #dce9f8;
-  --primary-foreground: #0b1523;
-  --secondary: #17263a;
-  --secondary-foreground: #dce9f8;
-  --muted: #17263a;
-  --muted-foreground: #8ea0b7;
-  --accent: #17263a;
-  --accent-foreground: #e7eef9;
+  color-scheme: dark;
+  --background: #0d0915;
+  --foreground: #f2edfa;
+  --card: #181124;
+  --card-foreground: #f2edfa;
+  --popover: #20172f;
+  --popover-foreground: #f2edfa;
+  --primary: #c4b5fd;
+  --primary-foreground: #1b102d;
+  --secondary: #291e3a;
+  --secondary-foreground: #eee7fb;
+  --muted: #241a34;
+  --muted-foreground: #aa9cbd;
+  --accent: #302244;
+  --accent-foreground: #f2edfa;
   --destructive: #fb7185;
-  --border: rgb(148 163 184 / 0.16);
-  --input: rgb(148 163 184 / 0.2);
-  --ring: #62a8ff;
+  --border: rgb(196 181 253 / 0.14);
+  --input: rgb(196 181 253 / 0.2);
+  --ring: #a78bfa;
+  --shadow-border: 0 0 0 1px rgb(255 255 255 / 0.08);
   --radius: 0.625rem;
-  --sidebar: #0d1827;
-  --sidebar-foreground: #e7eef9;
-  --sidebar-primary: #62a8ff;
-  --sidebar-primary-foreground: #07101c;
-  --sidebar-accent: #17263a;
-  --sidebar-accent-foreground: #e7eef9;
-  --sidebar-border: rgb(148 163 184 / 0.16);
-  --sidebar-ring: #62a8ff;
+  --sidebar: #181124;
+  --sidebar-foreground: #f2edfa;
+  --sidebar-primary: #a78bfa;
+  --sidebar-primary-foreground: #160c26;
+  --sidebar-accent: #302244;
+  --sidebar-accent-foreground: #f2edfa;
+  --sidebar-border: rgb(196 181 253 / 0.14);
+  --sidebar-ring: #a78bfa;
 }
 
 @layer base {
@@ -191,5 +195,7 @@ body {
   }
   html {
     @apply font-sans;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }

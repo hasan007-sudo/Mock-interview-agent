@@ -40,12 +40,13 @@ export async function POST(request: Request) {
     const roomName = `mock_interview_${Date.now()}`;
     const metadata = JSON.stringify({
       agent_id: "mock_interview",
+      avatar: true,
       user_name: name,
       interaction_mode: "auto",
       screen_feedback_mode: "timer",
       questions,
       prompt_context: {
-        agent_name: "Ishita",
+        agent_name: "Vasanth",
         current_round: "technical",
         role: "Software Engineer",
         topics: "data structures, algorithms, and web fundamentals",

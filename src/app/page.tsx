@@ -54,21 +54,21 @@ export default function Home() {
 
   return (
     <main className="flex min-h-screen items-center justify-center p-6">
-      <div className="w-full max-w-2xl rounded-xl border border-neutral-800 bg-neutral-900 p-8">
-        <h1 className="text-2xl font-semibold text-neutral-100">
+      <div className="w-full max-w-2xl rounded-xl bg-card p-8 shadow-[var(--shadow-border)]">
+        <h1 className="text-balance text-2xl font-semibold text-foreground">
           Mock Technical Interview
         </h1>
-        <p className="mt-2 text-sm text-neutral-400">
+        <p className="mt-2 text-pretty text-sm text-muted-foreground">
           A realistic voice interview with an AI interviewer. Questions marked{" "}
-          <code className="text-neutral-300">&quot;surface&quot;: &quot;code&quot;</code> open a
+          <code className="text-violet-200">&quot;surface&quot;: &quot;code&quot;</code> open a
           code editor on your screen and{" "}
-          <code className="text-neutral-300">&quot;whiteboard&quot;</code> opens a drawing
-          canvas; <code className="text-neutral-300">&quot;verbal&quot;</code> questions are
+          <code className="text-violet-200">&quot;whiteboard&quot;</code> opens a drawing
+          canvas; <code className="text-violet-200">&quot;verbal&quot;</code> questions are
           answered by speaking.
         </p>
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <label className="block">
-            <span className="mb-1.5 block text-sm text-neutral-300">
+            <span className="mb-1.5 block text-sm text-secondary-foreground">
               Your name
             </span>
             <input
@@ -78,11 +78,11 @@ export default function Home() {
               placeholder="e.g. Priya"
               autoFocus
               maxLength={60}
-              className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-neutral-500"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-ring focus:ring-2 focus:ring-ring/15"
             />
           </label>
           <label className="block">
-            <span className="mb-1.5 block text-sm text-neutral-300">
+            <span className="mb-1.5 block text-sm text-secondary-foreground">
               Interview questions (JSON)
             </span>
             <textarea
@@ -90,9 +90,9 @@ export default function Home() {
               onChange={(e) => setQuestionsJson(e.target.value)}
               rows={16}
               spellCheck={false}
-              className="w-full resize-y rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 font-mono text-xs leading-relaxed text-neutral-200 outline-none focus:border-neutral-500"
+              className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs leading-relaxed text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/15"
             />
-            <span className="mt-1.5 block text-xs text-neutral-500">
+            <span className="mt-1.5 block text-pretty text-xs text-muted-foreground">
               Each question needs an id, text, and a surface flag: verbal, code
               (optional language: java, javascript, python), or whiteboard.
             </span>
@@ -101,11 +101,11 @@ export default function Home() {
           <button
             type="submit"
             disabled={!name.trim() || isStarting}
-            className="w-full rounded-lg bg-white px-4 py-2.5 font-medium text-neutral-950 transition-colors hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full rounded-lg bg-primary px-4 py-2.5 font-medium text-primary-foreground transition-[background-color,scale] hover:bg-violet-200 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isStarting ? "Setting up your interview…" : "Start interview"}
           </button>
-          <p className="text-xs text-neutral-500">
+          <p className="text-xs text-muted-foreground">
             Your microphone and camera will be enabled when the session starts.
           </p>
         </form>

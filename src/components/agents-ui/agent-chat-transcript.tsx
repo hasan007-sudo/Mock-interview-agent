@@ -53,7 +53,7 @@ export function AgentChatTranscript({
 }: AgentChatTranscriptProps) {
   return (
     <Conversation className={className} {...props}>
-      <ConversationContent>
+      <ConversationContent className="gap-4">
         {messages.map((receivedMessage) => {
           const { id, timestamp, from, message } = receivedMessage;
           const time = new Date(timestamp);
@@ -63,7 +63,18 @@ export function AgentChatTranscript({
 
           return (
             <Message key={id} title={title} from={messageOrigin}>
-              <MessageContent>
+              <MessageContent
+                className={
+                  messageOrigin === 'assistant'
+                    ? 'rounded-xl bg-violet-300/[0.055] px-4 py-3 shadow-[0_0_0_1px_rgba(196,181,253,0.1)]'
+                    : undefined
+                }
+              >
+                {messageOrigin === 'assistant' && (
+                  <span className="text-[11px] font-medium tracking-wide text-violet-300">
+                    Interviewer
+                  </span>
+                )}
                 <MessageResponse>{message}</MessageResponse>
               </MessageContent>
             </Message>

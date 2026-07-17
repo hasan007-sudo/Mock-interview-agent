@@ -28,7 +28,7 @@ export default function SessionPage() {
   if (!connection) {
     return (
       <main className="flex min-h-screen items-center justify-center">
-        <p className="text-neutral-400">Loading session…</p>
+        <p className="text-muted-foreground">Loading session…</p>
       </main>
     );
   }

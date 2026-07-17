@@ -36,6 +36,8 @@ type ActiveSurface =
       kind: "code";
       question: string;
       language: SupportedLanguage;
+      answerMode: "verbal" | "surface";
+      starterCode: string;
     }
   | { key: string; kind: "whiteboard"; question: string }
   | null;
@@ -48,6 +50,7 @@ const LAYOUT_TRANSITION = {
 } as const;
 
 const SURFACE_STATE_PUBLISH_INTERVAL_MS = 5_000;
+const PUBLISH_ON_BEHALF_ATTRIBUTE = "lk.publish_on_behalf";
 
 function surfaceFromQuestion(question: InterviewQuestion): ActiveSurface {
   if (question.surface === "code") {
@@ -56,6 +59,8 @@ function surfaceFromQuestion(question: InterviewQuestion): ActiveSurface {
       kind: "code",
       question: question.text,
       language: question.language ?? "javascript",
+      answerMode: question.answerMode ?? "surface",
+      starterCode: question.starterCode ?? "",
     };
   }
   if (question.surface === "whiteboard") {
@@ -103,7 +108,11 @@ export function InterviewSession({
       setSurface(nextSurface);
 
       if (nextSurface?.kind === "code") {
-        toast.info("The interviewer opened a code editor for you.");
+        toast.info(
+          nextSurface.answerMode === "verbal"
+            ? "The interviewer displayed code for you."
+            : "The interviewer opened a code editor for you.",
+        );
       } else if (nextSurface?.kind === "whiteboard") {
         toast.info("The interviewer opened a whiteboard for you.");
       }
@@ -121,6 +130,8 @@ export function InterviewSession({
         kind: "code",
         question: event.metadata.question,
         language: event.metadata.language,
+        answerMode: "surface",
+        starterCode: "",
       });
       toast.info("The interviewer opened a code editor for you.");
     } else {
@@ -162,7 +173,10 @@ export function InterviewSession({
   useEffect(() => {
     const room = session.room;
     const handleParticipantDisconnected = (participant: RemoteParticipant) => {
-      if (participant.kind === ParticipantKind.AGENT) {
+      const isPrimaryAgent =
+        participant.kind === ParticipantKind.AGENT &&
+        !participant.attributes[PUBLISH_ON_BEHALF_ATTRIBUTE];
+      if (isPrimaryAgent) {
         setEnded(true);
       }
     };
@@ -264,18 +278,18 @@ export function InterviewSession({
   if (ended) {
     return (
       <main className="flex min-h-screen items-center justify-center p-6">
-        <div className="w-full max-w-md rounded-xl border border-neutral-800 bg-neutral-900 p-8 text-center">
-          <h1 className="text-2xl font-semibold text-neutral-100">
+        <div className="w-full max-w-md rounded-xl bg-card p-8 text-center shadow-[var(--shadow-border)]">
+          <h1 className="text-balance text-2xl font-semibold text-foreground">
             Interview complete
           </h1>
-          <p className="mt-2 text-sm text-neutral-400">
+          <p className="mt-2 text-pretty text-sm text-muted-foreground">
             Thanks for practicing, {connection.participantName}. You can start
             another session whenever you like.
           </p>
           <button
             type="button"
             onClick={leaveToHome}
-            className="mt-6 rounded-lg bg-white px-4 py-2.5 font-medium text-neutral-950 hover:bg-neutral-200"
+            className="mt-6 rounded-lg bg-primary px-4 py-2.5 font-medium text-primary-foreground transition-[background-color,scale] hover:bg-violet-200 active:scale-[0.96]"
           >
             Back to home
           </button>
@@ -292,26 +306,26 @@ export function InterviewSession({
   return (
     <SessionProvider session={session}>
       <RoomAudioRenderer room={session.room} />
-      <div className="dark flex h-dvh flex-col overflow-hidden bg-[#07101c] text-slate-100">
+      <div className="dark flex h-dvh flex-col overflow-hidden bg-background text-foreground">
         <header className="session-header flex shrink-0 items-center justify-between px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
-            <div className="flex size-8 items-center justify-center rounded-lg border border-sky-300/15 bg-sky-400/10 font-mono text-xs font-semibold text-sky-300">
+            <div className="flex size-8 items-center justify-center rounded-lg bg-violet-300/10 font-mono text-xs font-semibold text-violet-200 shadow-[0_0_0_1px_rgba(196,181,253,0.16)]">
               MI
             </div>
             <div>
-              <h1 className="text-sm font-semibold tracking-tight text-slate-100">
+              <h1 className="text-sm font-semibold tracking-tight text-foreground">
                 Mock Technical Interview
               </h1>
-              <p className="hidden text-[11px] text-slate-500 sm:block">
+              <p className="hidden text-[11px] text-muted-foreground sm:block">
                 Practice session
               </p>
             </div>
           </div>
-          <span className="flex items-center gap-2 text-xs font-medium text-slate-400">
+          <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
             <span
               className={`size-1.5 rounded-full ${
                 session.isConnected
-                  ? "bg-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.7)]"
+                  ? "bg-violet-300 shadow-[0_0_10px_rgba(196,181,253,0.55)]"
                   : "animate-pulse bg-amber-400"
               }`}
             />
@@ -320,7 +334,7 @@ export function InterviewSession({
         </header>
 
         {session.isConnected && !isScreenSharing && (
-          <div className="flex shrink-0 items-center justify-center gap-3 border-y border-amber-300/15 bg-amber-300/8 px-4 py-2 text-xs text-amber-100">
+          <div className="flex shrink-0 items-center justify-center gap-3 border-y border-violet-300/15 bg-violet-300/8 px-4 py-2 text-xs text-violet-100">
             <span>
               Share your screen and select Entire Screen so the interviewer can
               assist during coding and whiteboard questions.
@@ -329,7 +343,7 @@ export function InterviewSession({
               type="button"
               onClick={handleEnableScreenShare}
               disabled={isScreenSharePending}
-              className="shrink-0 rounded-md bg-amber-200 px-3 py-1.5 font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-60"
+              className="shrink-0 rounded-md bg-violet-200 px-3 py-1.5 font-semibold text-violet-950 transition-[background-color,scale] hover:bg-violet-100 active:scale-[0.96] disabled:opacity-60"
             >
               {isScreenSharePending ? "Starting…" : "Share screen"}
             </button>
@@ -363,6 +377,8 @@ export function InterviewSession({
                       <CodeEditorPanel
                       question={surface.question}
                       initialLanguage={surface.language}
+                      initialCode={surface.starterCode}
+                      readOnly={surface.answerMode === "verbal"}
                       onContentChange={handleSurfaceContentChange}
                       onClose={handleCloseSurface}
                       />
@@ -414,7 +430,7 @@ export function InterviewSession({
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                   onClick={() => setIsTranscriptOpen(false)}
-                  className="absolute inset-0 z-10 bg-slate-950/55 xl:hidden"
+                  className="absolute inset-0 z-10 bg-[#09060f]/65 xl:hidden"
                 />
                 <motion.div
                   initial={reduceMotion ? false : { opacity: 0, x: 24 }}

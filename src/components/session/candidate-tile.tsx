@@ -17,7 +17,7 @@ function CandidatePlaceholder({ compact }: { compact: boolean }) {
     : ({ type: "spring", stiffness: 300, damping: 32, mass: 0.8 } as const);
 
   return (
-    <div className="flex h-full flex-col items-center justify-center bg-slate-950/30">
+    <div className="flex h-full flex-col items-center justify-center bg-background/35">
       <motion.div
         layout
         animate={{
@@ -25,7 +25,7 @@ function CandidatePlaceholder({ compact }: { compact: boolean }) {
           height: compact ? 48 : 96,
         }}
         transition={transition}
-        className="flex shrink-0 items-center justify-center rounded-full border border-slate-700/80 bg-slate-800/70 text-slate-300"
+        className="flex shrink-0 items-center justify-center rounded-full bg-violet-300/8 text-violet-200 shadow-[0_0_0_1px_rgba(196,181,253,0.13)]"
       >
         <UserRound
           aria-hidden="true"
@@ -34,7 +34,7 @@ function CandidatePlaceholder({ compact }: { compact: boolean }) {
         />
       </motion.div>
       {!compact && (
-        <span className="mt-4 text-xs font-medium text-slate-500">
+        <span className="mt-4 text-xs font-medium text-muted-foreground">
           Camera off
         </span>
       )}
@@ -94,7 +94,7 @@ export function CandidateTile({
       ) : (
         <CandidatePlaceholder compact={compact} />
       )}
-      <div className="absolute bottom-3 left-4 rounded-md border border-white/5 bg-slate-950/75 px-2 py-1 text-xs font-medium text-slate-100 backdrop-blur-sm">
+      <div className="absolute bottom-3 left-4 rounded-md bg-[#0d0915]/80 px-2 py-1 text-xs font-medium text-violet-50 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] backdrop-blur-sm">
         {name}
       </div>
     </div>

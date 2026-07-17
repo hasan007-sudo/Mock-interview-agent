@@ -9,7 +9,7 @@ Home (name entry + editable questions JSON)
   └─ POST /api/connection-details
        ├─ validates questions [{id, text, surface: "verbal"|"code"|"whiteboard", language?}]
        ├─ RoomServiceClient.createRoom(metadata: { agent_id: "mock_interview",
-       │     questions, prompt_context: { interview_plan, ... } })
+       │     avatar: true, questions, prompt_context: { interview_plan, ... } })
        ├─ AgentDispatchClient.createDispatch(room, LIVEKIT_AGENT_NAME)
        └─ mints participant token
 Session page
@@ -29,7 +29,10 @@ The agent side lives in `intervoo-agents/agent`:
 ## Setup
 
 1. Copy `.env.example` to `.env.local` and fill in the LiveKit credentials (same project as the agent) and an OpenRouter key. `LIVEKIT_AGENT_NAME` must match the worker's `AGENT_NAME`.
-2. Start the agent worker (first run downloads model files):
+2. In `intervoo-agents/agent`, copy `.env.example` to `.env.local`, set `AVATAR_PROVIDER` to `liveavatar` or `simli`, and fill in that provider's credentials. If the provider is disabled, misconfigured, or cannot start, the session continues with the existing audio agent and static interviewer image.
+
+   Hedra cannot be selected: Hedra shut down its Realtime Avatar service on April 15, 2026, and the current LiveKit plugin intentionally rejects new sessions.
+3. Start the agent worker (first run downloads model files):
 
    ```bash
    cd ../intervoo-agents/agent
@@ -37,14 +40,14 @@ The agent side lives in `intervoo-agents/agent`:
    TTS_PROVIDER=sarvam uv run src/server.py dev
    ```
 
-3. Start the app:
+4. Start the app:
 
    ```bash
    bun install
    bun dev
    ```
 
-4. Open http://localhost:3000, enter your name, and allow microphone + camera.
+5. Open http://localhost:3000, enter your name, and allow microphone + camera.
 
 ## Notes
 

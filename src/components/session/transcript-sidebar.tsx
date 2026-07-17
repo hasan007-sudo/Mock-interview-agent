@@ -43,13 +43,13 @@ export function TranscriptSidebar({
   const showTranscript = messages.length > 0 || agent.state === "thinking";
 
   return (
-    <aside className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-700/50 bg-[#0d1827] shadow-2xl shadow-black/30">
-      <header className="flex shrink-0 items-center justify-between border-b border-slate-700/40 px-4 py-3">
+    <aside className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl bg-card shadow-[var(--shadow-border),0_24px_64px_rgba(0,0,0,0.34)]">
+      <header className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2.5">
-          <MessageSquareText aria-hidden="true" className="size-4 text-sky-300" />
+          <MessageSquareText aria-hidden="true" className="size-4 text-violet-300" />
           <div>
-            <h2 className="text-sm font-semibold text-slate-100">Transcript</h2>
-            <p className="text-[11px] text-slate-500">Interview conversation</p>
+            <h2 className="text-sm font-semibold text-foreground">Transcript</h2>
+            <p className="text-[11px] text-muted-foreground">Interview conversation</p>
           </div>
         </div>
         <Button
@@ -58,7 +58,7 @@ export function TranscriptSidebar({
           size="icon"
           onClick={onClose}
           aria-label="Close transcript"
-          className="rounded-full text-slate-400 hover:bg-slate-700/50 hover:text-slate-100"
+          className="rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <X />
         </Button>
@@ -73,13 +73,13 @@ export function TranscriptSidebar({
           />
         ) : (
           <div className="flex h-full flex-col items-center justify-center px-8 text-center">
-            <div className="flex size-10 items-center justify-center rounded-full bg-slate-800 text-slate-400">
+            <div className="flex size-10 items-center justify-center rounded-full bg-violet-300/10 text-violet-300">
               <MessageSquareText aria-hidden="true" className="size-4" />
             </div>
-            <p className="mt-3 text-sm font-medium text-slate-300">
+            <p className="mt-3 text-sm font-medium text-secondary-foreground">
               Conversation will appear here
             </p>
-            <p className="mt-1 text-xs leading-relaxed text-slate-500">
+            <p className="mt-1 text-pretty text-xs leading-relaxed text-muted-foreground">
               Spoken and typed messages from you and the interviewer are shown together.
             </p>
           </div>
@@ -88,7 +88,7 @@ export function TranscriptSidebar({
 
       <form
         onSubmit={handleSubmit}
-        className="flex shrink-0 items-center gap-2 border-t border-slate-700/40 p-3"
+        className="flex shrink-0 items-center gap-2 border-t border-border p-3"
       >
         <label className="sr-only" htmlFor="transcript-message">
           Message the interviewer
@@ -100,14 +100,14 @@ export function TranscriptSidebar({
           onChange={(event) => setMessage(event.target.value)}
           disabled={isSending}
           placeholder="Message the interviewer…"
-          className="min-w-0 flex-1 rounded-xl border border-slate-700/60 bg-slate-950/40 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-sky-400/60 focus:ring-2 focus:ring-sky-400/10 disabled:opacity-60"
+          className="min-w-0 flex-1 rounded-xl border border-input bg-background/55 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-ring focus:ring-2 focus:ring-ring/15 disabled:opacity-60"
         />
         <Button
           type="submit"
           size="icon"
           disabled={!trimmedMessage || isSending}
           aria-label={isSending ? "Sending message" : "Send message"}
-          className="size-9 rounded-xl bg-sky-400 text-slate-950 hover:bg-sky-300"
+          className="size-9 rounded-xl bg-primary text-primary-foreground hover:bg-violet-200"
         >
           {isSending ? <Loader className="animate-spin" /> : <SendHorizontal />}
         </Button>
