@@ -144,10 +144,6 @@ function TrackDeviceSelect({
     onOpen(open);
   };
 
-  if (devices.length < 2) {
-    return null;
-  }
-
   return (
     <Select
       open={open}
@@ -157,7 +153,11 @@ function TrackDeviceSelect({
         if (deviceId) onActiveDeviceChange?.(deviceId);
       }}
     >
-      <SelectTrigger className={cn(selectVariants({ size, variant }), className)} {...props}>
+      <SelectTrigger
+        disabled={devices.length === 0}
+        className={cn(selectVariants({ size, variant }), className)}
+        {...props}
+      >
         {size !== 'sm' && (
           <SelectValue className="font-mono text-sm" placeholder={`Select a ${kind}`} />
         )}
@@ -307,7 +307,7 @@ export function AgentTrackControl({
             <span
               className={cn([
                 'h-full min-h-0.5 w-0.5 origin-center',
-                'group-data-[state=on]/track:bg-foreground group-data-[state=off]/track:bg-destructive',
+                'bg-destructive group-data-[pressed]/track:bg-foreground',
                 'data-lk-muted:bg-muted',
               ])}
             />
