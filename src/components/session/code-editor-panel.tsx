@@ -3,12 +3,10 @@
 import Editor from "@monaco-editor/react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import {
-  type Evaluation,
-  EvaluationResult,
-} from "@/components/session/evaluation-result";
 import type { CodeExecutionResult } from "@/lib/code-execution";
 import type { SupportedLanguage } from "@/lib/events";
+
+const MAX_CODE_ANSWER_CHARS = 20_000;
 
 const LANGUAGE_LABELS: Record<SupportedLanguage, string> = {
   java: "Java",
@@ -80,13 +78,21 @@ export function CodeEditorPanel({
   initialCode,
   readOnly,
   onContentChange,
+  onSubmit,
   onClose,
 }: {
   question: string;
   initialLanguage: SupportedLanguage;
   initialCode: string;
   readOnly: boolean;
-  onContentChange: () => void;
+  onContentChange: (answer: {
+    code: string;
+    language: SupportedLanguage;
+  }) => void;
+  onSubmit: (answer: {
+    code: string;
+    language: SupportedLanguage;
+  }) => Promise<boolean>;
   onClose: () => void;
 }) {
   const [language, setLanguage] = useState<SupportedLanguage>(initialLanguage);
@@ -94,8 +100,7 @@ export function CodeEditorPanel({
   const runAbortControllerRef = useRef<AbortController | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [runResult, setRunResult] = useState<CodeExecutionResult | null>(null);
-  const [isEvaluating, setIsEvaluating] = useState(false);
-  const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(
     () => () => {
@@ -142,22 +147,15 @@ export function CodeEditorPanel({
   }
 
   async function handleSubmit() {
-    if (!code.trim() || isEvaluating) return;
-    setIsEvaluating(true);
-    setEvaluation(null);
+    if (!code.trim() || isSaving) return;
+    setIsSaving(true);
     try {
-      const response = await fetch("/api/evaluate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ surface: "code", question, language, code }),
-      });
-      if (!response.ok) throw new Error(`Evaluation failed: ${response.status}`);
-      setEvaluation(await response.json());
-    } catch (error) {
-      console.error(error);
-      toast.error("Evaluation failed. Please try again.");
+      const saved = await onSubmit({ language, code });
+      if (saved) {
+        toast.success("Answer saved for final feedback.");
+      }
     } finally {
-      setIsEvaluating(false);
+      setIsSaving(false);
     }
   }
 
@@ -187,12 +185,17 @@ export function CodeEditorPanel({
           value={code}
           onChange={(value) => {
             if (readOnly) return;
+            const nextCode = value ?? "";
+            if (nextCode.length > MAX_CODE_ANSWER_CHARS) {
+              toast.error("Code answers are limited to 20,000 characters.");
+              return;
+            }
             runAbortControllerRef.current?.abort();
             runAbortControllerRef.current = null;
             setIsRunning(false);
-            setCode(value ?? "");
+            setCode(nextCode);
             setRunResult(null);
-            onContentChange();
+            onContentChange({ code: nextCode, language });
           }}
           options={{
             minimap: { enabled: false },
@@ -218,9 +221,10 @@ export function CodeEditorPanel({
                 runAbortControllerRef.current?.abort();
                 runAbortControllerRef.current = null;
                 setIsRunning(false);
-                setLanguage(e.target.value as SupportedLanguage);
+                const nextLanguage = e.target.value as SupportedLanguage;
+                setLanguage(nextLanguage);
                 setRunResult(null);
-                onContentChange();
+                onContentChange({ code, language: nextLanguage });
               }}
               className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/15"
             >
@@ -244,15 +248,14 @@ export function CodeEditorPanel({
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={!code.trim() || isEvaluating}
+                disabled={!code.trim() || isSaving}
                 className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground transition-[background-color,scale] hover:bg-violet-200 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isEvaluating ? "Evaluating…" : "Submit for evaluation"}
+                {isSaving ? "Saving…" : "Save answer"}
               </button>
             </div>
           </div>
           {runResult && <ExecutionConsole result={runResult} />}
-          {evaluation && <EvaluationResult evaluation={evaluation} />}
         </div>
       )}
     </div>

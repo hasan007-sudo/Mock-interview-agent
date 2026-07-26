@@ -42,6 +42,13 @@ type ActiveSurface =
   | { key: string; kind: "whiteboard"; question: string }
   | null;
 
+type CodeAnswerDraft = {
+  questionId: string;
+  language: SupportedLanguage;
+  code: string;
+  revision: number;
+};
+
 const LAYOUT_TRANSITION = {
   type: "spring",
   stiffness: 300,
@@ -50,6 +57,8 @@ const LAYOUT_TRANSITION = {
 } as const;
 
 const SURFACE_STATE_PUBLISH_INTERVAL_MS = 5_000;
+const CODE_ANSWER_TOPIC = "candidate.code_answer";
+const MAX_CODE_ANSWER_CHARS = 20_000;
 const PUBLISH_ON_BEHALF_ATTRIBUTE = "lk.publish_on_behalf";
 
 function surfaceFromQuestion(question: InterviewQuestion): ActiveSurface {
@@ -93,6 +102,8 @@ export function InterviewSession({
   const hasStartedRef = useRef(false);
   const hasQuestionEventsRef = useRef(false);
   const lastSurfaceStatePublishedAtRef = useRef(0);
+  const codeAnswerRef = useRef<CodeAnswerDraft | null>(null);
+  const surfaceRevisionRef = useRef(0);
   const [surface, setSurface] = useState<ActiveSurface>(null);
   const [ended, setEnded] = useState(false);
   const [isTranscriptOpen, setIsTranscriptOpen] = useState(false);
@@ -100,50 +111,105 @@ export function InterviewSession({
   const [isScreenSharePending, setIsScreenSharePending] = useState(false);
   const [surfaceRevision, setSurfaceRevision] = useState(0);
 
-  const handleAgentEvent = useCallback((event: AgentDataEvent) => {
-    if (event.type === "interview_question_started") {
-      hasQuestionEventsRef.current = true;
-      const nextSurface = surfaceFromQuestion(event.metadata.question);
-      setSurfaceRevision(0);
-      setSurface(nextSurface);
+  const publishCodeAnswer = useCallback(
+    async (
+      submitted: boolean,
+      draft: CodeAnswerDraft | null = codeAnswerRef.current,
+    ) => {
+      if (!draft || !session.isConnected) return false;
+      if (draft.code.length > MAX_CODE_ANSWER_CHARS) {
+        if (submitted) {
+          toast.error("Code answers are limited to 20,000 characters.");
+        }
+        return false;
+      }
 
-      if (nextSurface?.kind === "code") {
-        toast.info(
-          nextSurface.answerMode === "verbal"
-            ? "The interviewer displayed code for you."
-            : "The interviewer opened a code editor for you.",
+      try {
+        await session.room.localParticipant.sendText(
+          JSON.stringify({
+            questionId: draft.questionId,
+            surface: "code",
+            answerMode: "surface",
+            language: draft.language,
+            code: draft.code,
+            revision: draft.revision,
+            submitted,
+          }),
+          { topic: CODE_ANSWER_TOPIC },
         );
-      } else if (nextSurface?.kind === "whiteboard") {
+        return true;
+      } catch (error) {
+        console.error("Failed to save code answer:", error);
+        if (submitted) {
+          toast.error("Could not save the code answer. Please try again.");
+        }
+        return false;
+      }
+    },
+    [session.isConnected, session.room],
+  );
+
+  const setActiveSurface = useCallback((nextSurface: ActiveSurface) => {
+    surfaceRevisionRef.current = 0;
+    setSurfaceRevision(0);
+    codeAnswerRef.current =
+      nextSurface?.kind === "code" && nextSurface.answerMode === "surface"
+        ? {
+            questionId: nextSurface.key,
+            language: nextSurface.language,
+            code: nextSurface.starterCode,
+            revision: 0,
+          }
+        : null;
+    setSurface(nextSurface);
+  }, []);
+
+  const handleAgentEvent = useCallback(
+    (event: AgentDataEvent) => {
+      if (event.type === "interview_question_started") {
+        hasQuestionEventsRef.current = true;
+        void publishCodeAnswer(false);
+        const nextSurface = surfaceFromQuestion(event.metadata.question);
+        setActiveSurface(nextSurface);
+
+        if (nextSurface?.kind === "code") {
+          toast.info(
+            nextSurface.answerMode === "verbal"
+              ? "The interviewer displayed code for you."
+              : "The interviewer opened a code editor for you.",
+          );
+        } else if (nextSurface?.kind === "whiteboard") {
+          toast.info("The interviewer opened a whiteboard for you.");
+        }
+        return;
+      }
+
+      // Keep compatibility with workers that have not started publishing the
+      // full question event yet. Once that event is seen, it owns UI lifecycle.
+      if (hasQuestionEventsRef.current) return;
+
+      void publishCodeAnswer(false);
+      if (event.type === "open_code_editor") {
+        setActiveSurface({
+          key: event.metadata.question,
+          kind: "code",
+          question: event.metadata.question,
+          language: event.metadata.language,
+          answerMode: "surface",
+          starterCode: "",
+        });
+        toast.info("The interviewer opened a code editor for you.");
+      } else {
+        setActiveSurface({
+          key: event.metadata.question,
+          kind: "whiteboard",
+          question: event.metadata.question,
+        });
         toast.info("The interviewer opened a whiteboard for you.");
       }
-      return;
-    }
-
-    // Keep compatibility with workers that have not started publishing the
-    // full question event yet. Once that event is seen, it owns UI lifecycle.
-    if (hasQuestionEventsRef.current) return;
-
-    if (event.type === "open_code_editor") {
-      setSurfaceRevision(0);
-      setSurface({
-        key: event.metadata.question,
-        kind: "code",
-        question: event.metadata.question,
-        language: event.metadata.language,
-        answerMode: "surface",
-        starterCode: "",
-      });
-      toast.info("The interviewer opened a code editor for you.");
-    } else {
-      setSurfaceRevision(0);
-      setSurface({
-        key: event.metadata.question,
-        kind: "whiteboard",
-        question: event.metadata.question,
-      });
-      toast.info("The interviewer opened a whiteboard for you.");
-    }
-  }, []);
+    },
+    [publishCodeAnswer, setActiveSurface],
+  );
 
   useRoomEventLogger(session.room, handleAgentEvent);
 
@@ -172,6 +238,10 @@ export function InterviewSession({
 
   useEffect(() => {
     const room = session.room;
+    const handleRoomDisconnected = () => {
+      sessionStorage.removeItem(CONNECTION_STORAGE_KEY);
+      router.replace("/");
+    };
     const handleParticipantDisconnected = (participant: RemoteParticipant) => {
       const isPrimaryAgent =
         participant.kind === ParticipantKind.AGENT &&
@@ -181,14 +251,16 @@ export function InterviewSession({
       }
     };
 
+    room.on(RoomEvent.Disconnected, handleRoomDisconnected);
     room.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
     return () => {
+      room.off(RoomEvent.Disconnected, handleRoomDisconnected);
       room.off(
         RoomEvent.ParticipantDisconnected,
         handleParticipantDisconnected,
       );
     };
-  }, [session.room]);
+  }, [router, session.room]);
 
   useEffect(() => {
     const room = session.room;
@@ -231,23 +303,78 @@ export function InterviewSession({
         : Math.max(0, SURFACE_STATE_PUBLISH_INTERVAL_MS - elapsed);
     const timeout = window.setTimeout(() => {
       lastSurfaceStatePublishedAtRef.current = Date.now();
-      publishCandidateSurfaceState().catch((error) => {
+      const codeAnswer = codeAnswerRef.current;
+      Promise.all([
+        publishCandidateSurfaceState(),
+        publishCodeAnswer(false, codeAnswer),
+      ]).catch((error) => {
         lastSurfaceStatePublishedAtRef.current = 0;
         console.error("Failed to publish candidate surface state:", error);
       });
     }, delay);
 
     return () => window.clearTimeout(timeout);
-  }, [publishCandidateSurfaceState, session.isConnected, surfaceRevision]);
+  }, [
+    publishCandidateSurfaceState,
+    publishCodeAnswer,
+    session.isConnected,
+    surfaceRevision,
+  ]);
 
   const handleSurfaceContentChange = useCallback(() => {
-    setSurfaceRevision((revision) => revision + 1);
+    surfaceRevisionRef.current += 1;
+    setSurfaceRevision(surfaceRevisionRef.current);
   }, []);
 
+  const handleCodeContentChange = useCallback(
+    (answer: { code: string; language: SupportedLanguage }) => {
+      if (
+        surface?.kind !== "code" ||
+        surface.answerMode !== "surface" ||
+        answer.code.length > MAX_CODE_ANSWER_CHARS
+      ) {
+        return;
+      }
+
+      surfaceRevisionRef.current += 1;
+      const revision = surfaceRevisionRef.current;
+      codeAnswerRef.current = {
+        questionId: surface.key,
+        language: answer.language,
+        code: answer.code,
+        revision,
+      };
+      setSurfaceRevision(revision);
+    },
+    [surface],
+  );
+
+  const handleCodeSubmit = useCallback(
+    (answer: { code: string; language: SupportedLanguage }) => {
+      if (
+        surface?.kind !== "code" ||
+        surface.answerMode !== "surface" ||
+        answer.code.length > MAX_CODE_ANSWER_CHARS
+      ) {
+        return Promise.resolve(false);
+      }
+
+      const draft: CodeAnswerDraft = {
+        questionId: surface.key,
+        language: answer.language,
+        code: answer.code,
+        revision: surfaceRevisionRef.current,
+      };
+      codeAnswerRef.current = draft;
+      return publishCodeAnswer(true, draft);
+    },
+    [publishCodeAnswer, surface],
+  );
+
   const handleCloseSurface = useCallback(() => {
-    setSurfaceRevision(0);
-    setSurface(null);
-  }, []);
+    void publishCodeAnswer(false);
+    setActiveSurface(null);
+  }, [publishCodeAnswer, setActiveSurface]);
 
   async function handleEnableScreenShare() {
     if (isScreenSharePending) return;
@@ -267,6 +394,7 @@ export function InterviewSession({
   }
 
   function handleDisconnect() {
+    void publishCodeAnswer(false);
     setEnded(true);
   }
 
@@ -379,7 +507,8 @@ export function InterviewSession({
                       initialLanguage={surface.language}
                       initialCode={surface.starterCode}
                       readOnly={surface.answerMode === "verbal"}
-                      onContentChange={handleSurfaceContentChange}
+                      onContentChange={handleCodeContentChange}
+                      onSubmit={handleCodeSubmit}
                       onClose={handleCloseSurface}
                       />
                     ) : (
