@@ -4,6 +4,7 @@ import {
   createRoomServiceClient,
   getLiveKitCredentials,
 } from "@/lib/livekit";
+import { buildAdaptivePlan, type VasanthOpening } from "@/lib/opening";
 import {
   buildInterviewPlan,
   DEFAULT_QUESTIONS,
@@ -12,33 +13,57 @@ import {
 
 export const dynamic = "force-dynamic";
 
+/** Room metadata is broadcast to every participant, so cap the embedded resume. */
+const MAX_RESUME_METADATA_CHARS = 16000;
+
 export async function POST(request: Request) {
   let name = "";
-  let rawQuestions: unknown;
+  let body: Record<string, unknown>;
   try {
-    const body = await request.json();
+    body = await request.json();
     name = typeof body?.name === "string" ? body.name.trim() : "";
-    rawQuestions = body?.questions;
   } catch {
-    // fall through to validation error
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
   if (!name) {
     return Response.json({ error: "name is required" }, { status: 400 });
   }
 
-  const result =
-    rawQuestions === undefined
-      ? { questions: DEFAULT_QUESTIONS }
-      : validateQuestions(rawQuestions);
-  if ("error" in result) {
-    return Response.json({ error: result.error }, { status: 400 });
-  }
-  const questions = result.questions;
+  const opening = body?.opening as VasanthOpening | undefined;
+  const rawQuestions = body?.questions;
+  const resumeMarkdown =
+    typeof body?.markdown === "string" ? body.markdown.trim() : "";
 
-  try {
-    const { url, agentName } = getLiveKitCredentials();
-    const roomName = `mock_interview_${Date.now()}`;
-    const metadata = JSON.stringify({
+  let metadata: string;
+
+  if (opening) {
+    metadata = JSON.stringify({
+      agent_id: "mock_interview",
+      avatar: true,
+      user_name: name,
+      // Rendered by the agent prompt as {user_details}: the parsed resume the
+      // opening plan was derived from.
+      user_details: resumeMarkdown.slice(0, MAX_RESUME_METADATA_CHARS),
+      interaction_mode: "adaptive",
+      opening,
+      prompt_context: {
+        agent_name: "Vasanth",
+        current_round: "adaptive_opening",
+        role: "Software Engineer",
+        adaptive_plan: buildAdaptivePlan(opening),
+      },
+    });
+  } else {
+    const result =
+      rawQuestions === undefined
+        ? { questions: DEFAULT_QUESTIONS }
+        : validateQuestions(rawQuestions);
+    if ("error" in result) {
+      return Response.json({ error: result.error }, { status: 400 });
+    }
+    const questions = result.questions;
+
+    metadata = JSON.stringify({
       agent_id: "mock_interview",
       avatar: true,
       user_name: name,
@@ -53,6 +78,11 @@ export async function POST(request: Request) {
         interview_plan: buildInterviewPlan(questions),
       },
     });
+  }
+
+  try {
+    const { url, agentName } = getLiveKitCredentials();
+    const roomName = `mock_interview_${Date.now()}`;
 
     const roomClient = createRoomServiceClient();
     await roomClient.createRoom({

@@ -5,6 +5,12 @@ A realistic mock technical interview app: a LiveKit voice agent interviews the c
 ## How it works
 
 ```
+Home (name + interview track + resume upload)
+  └─ POST /api/parse-resume            ── adaptive path
+       ├─ sends the file straight to the model (no local text extraction)
+       ├─ pass 1: resume → faithful Markdown        (MARKDOWN_INSTRUCTIONS)
+       ├─ pass 2: Markdown + track → opening plan   (OPENING_INSTRUCTIONS)
+       └─ returns { markdown, opening }
 Home (name entry + editable questions JSON)
   └─ POST /api/connection-details
        ├─ validates questions [{id, text, surface: "verbal"|"code"|"whiteboard", language?}]
@@ -17,6 +23,8 @@ Session page
   ├─ RoomEvent.DataReceived → { type: "open_code_editor" | "open_whiteboard" }
   └─ Submit → POST /api/evaluate (ai SDK + OpenRouter, vision model for whiteboard)
 ```
+
+Both prompts in the adaptive path are ported verbatim from `../parser/src/resume_parser/backend.py`, so the Next.js app and the Python CLI produce the same opening structure: one mandatory broad introduction, two to four conditional `follow_up_plans` with `ask_if` / `skip_if`, a one-follow-up maximum, and a transition condition. The parsed Markdown is sent to the agent as `user_details`, which the interviewer prompt renders as `{user_details}`.
 
 The agent asks the configured questions in order. For questions with `surface: "code"` or `"whiteboard"` it calls the `open_question_editor(question_id)` tool, which publishes the matching data-channel event, and the prompt requires it to tell the candidate the editor is open on their screen and to type/draw there. Questions default to [src/lib/questions.ts](src/lib/questions.ts) and are editable on the home page before starting.
 
