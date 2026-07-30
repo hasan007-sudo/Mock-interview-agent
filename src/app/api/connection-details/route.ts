@@ -34,6 +34,15 @@ export async function POST(request: Request) {
   const resumeMarkdown =
     typeof body?.markdown === "string" ? body.markdown.trim() : "";
 
+  const result =
+    rawQuestions === undefined
+      ? { questions: DEFAULT_QUESTIONS }
+      : validateQuestions(rawQuestions);
+  if ("error" in result) {
+    return Response.json({ error: result.error }, { status: 400 });
+  }
+  const questions = result.questions;
+
   let metadata: string;
 
   if (opening) {
@@ -41,28 +50,23 @@ export async function POST(request: Request) {
       agent_id: "mock_interview",
       avatar: true,
       user_name: name,
-      // Rendered by the agent prompt as {user_details}: the parsed resume the
-      // opening plan was derived from.
-      user_details: resumeMarkdown.slice(0, MAX_RESUME_METADATA_CHARS),
       interaction_mode: "adaptive",
       opening,
+      questions,
       prompt_context: {
         agent_name: "Vasanth",
         current_round: "adaptive_opening",
         role: "Software Engineer",
         adaptive_plan: buildAdaptivePlan(opening),
+        // Rendered by vasanth.md as {resume_markdown}. The agent reads only
+        // metadata.prompt_context, so a top-level field would never reach the prompt.
+        resume_markdown: resumeMarkdown.slice(0, MAX_RESUME_METADATA_CHARS),
+        // vasanth.md calls {interview_plan} authoritative; without it the plan
+        // section renders empty and the agent has no technical questions.
+        interview_plan: buildInterviewPlan(questions),
       },
     });
   } else {
-    const result =
-      rawQuestions === undefined
-        ? { questions: DEFAULT_QUESTIONS }
-        : validateQuestions(rawQuestions);
-    if ("error" in result) {
-      return Response.json({ error: result.error }, { status: 400 });
-    }
-    const questions = result.questions;
-
     metadata = JSON.stringify({
       agent_id: "mock_interview",
       avatar: true,
