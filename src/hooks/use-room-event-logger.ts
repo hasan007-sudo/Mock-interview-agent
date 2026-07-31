@@ -5,8 +5,8 @@ import { type AgentDataEvent, parseAgentEvent } from "@/lib/events";
 const TAG = "[mock-interview]";
 
 /**
- * Listens only for the three agent data events used by the interview UI,
- * logs their complete payloads, and forwards them to the session layout.
+ * Listens for the planned-question event, logs its candidate-safe payload,
+ * and forwards it to the session layout.
  */
 export function useRoomEventLogger(
   room: Room,

@@ -15,6 +15,8 @@ export const dynamic = "force-dynamic";
 
 /** Room metadata is broadcast to every participant, so cap the embedded resume. */
 const MAX_RESUME_METADATA_CHARS = 16000;
+/** Set to true to restore frontend-supplied interview questions. */
+const SEND_FRONTEND_QUESTIONS = false;
 
 export async function POST(request: Request) {
   let name = "";
@@ -34,25 +36,27 @@ export async function POST(request: Request) {
   const resumeMarkdown =
     typeof body?.markdown === "string" ? body.markdown.trim() : "";
 
-  const result =
-    rawQuestions === undefined
+  const questionResult = SEND_FRONTEND_QUESTIONS
+    ? rawQuestions === undefined
       ? { questions: DEFAULT_QUESTIONS }
-      : validateQuestions(rawQuestions);
-  if ("error" in result) {
-    return Response.json({ error: result.error }, { status: 400 });
+      : validateQuestions(rawQuestions)
+    : null;
+  if (questionResult && "error" in questionResult) {
+    return Response.json({ error: questionResult.error }, { status: 400 });
   }
-  const questions = result.questions;
+  const questions = questionResult?.questions;
 
   let metadata: string;
 
   if (opening) {
     metadata = JSON.stringify({
-      agent_id: "mock_interview",
+      agent_id: "mock_interview_v4",
       avatar: true,
       user_name: name,
       interaction_mode: "adaptive",
+      screen_feedback_mode: "timer",
       opening,
-      questions,
+      ...(questions ? { questions } : {}),
       prompt_context: {
         agent_name: "Vasanth",
         current_round: "adaptive_opening",
@@ -61,25 +65,27 @@ export async function POST(request: Request) {
         // Rendered by vasanth.md as {resume_markdown}. The agent reads only
         // metadata.prompt_context, so a top-level field would never reach the prompt.
         resume_markdown: resumeMarkdown.slice(0, MAX_RESUME_METADATA_CHARS),
-        // vasanth.md calls {interview_plan} authoritative; without it the plan
-        // section renders empty and the agent has no technical questions.
-        interview_plan: buildInterviewPlan(questions),
+        ...(questions
+          ? { interview_plan: buildInterviewPlan(questions) }
+          : {}),
       },
     });
   } else {
     metadata = JSON.stringify({
-      agent_id: "mock_interview",
+      agent_id: "mock_interview_v4",
       avatar: true,
       user_name: name,
       interaction_mode: "auto",
       screen_feedback_mode: "timer",
-      questions,
+      ...(questions ? { questions } : {}),
       prompt_context: {
         agent_name: "Vasanth",
         current_round: "technical",
         role: "Software Engineer",
         topics: "data structures, algorithms, and web fundamentals",
-        interview_plan: buildInterviewPlan(questions),
+        ...(questions
+          ? { interview_plan: buildInterviewPlan(questions) }
+          : {}),
       },
     });
   }

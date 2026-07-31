@@ -20,6 +20,7 @@ import { AgentTile } from "@/components/session/agent-tile";
 import { CandidateTile } from "@/components/session/candidate-tile";
 import { CodeEditorPanel } from "@/components/session/code-editor-panel";
 import { ControlBar } from "@/components/session/control-bar";
+import { McqPanel } from "@/components/session/mcq-panel";
 import { TranscriptSidebar } from "@/components/session/transcript-sidebar";
 import { WhiteboardPanel } from "@/components/session/whiteboard-panel";
 import { useRoomEventLogger } from "@/hooks/use-room-event-logger";
@@ -38,6 +39,14 @@ type ActiveSurface =
       language: SupportedLanguage;
       answerMode: "verbal" | "surface";
       starterCode: string;
+    }
+  | {
+      key: string;
+      kind: "choice";
+      question: string;
+      options: string[];
+      code?: string;
+      language?: SupportedLanguage;
     }
   | { key: string; kind: "whiteboard"; question: string }
   | null;
@@ -58,6 +67,7 @@ const LAYOUT_TRANSITION = {
 
 const SURFACE_STATE_PUBLISH_INTERVAL_MS = 5_000;
 const CODE_ANSWER_TOPIC = "candidate.code_answer";
+const MCQ_ANSWER_TOPIC = "candidate.mcq_answer";
 const MAX_CODE_ANSWER_CHARS = 20_000;
 const PUBLISH_ON_BEHALF_ATTRIBUTE = "lk.publish_on_behalf";
 
@@ -77,6 +87,16 @@ function surfaceFromQuestion(question: InterviewQuestion): ActiveSurface {
       key: question.id,
       kind: "whiteboard",
       question: question.text,
+    };
+  }
+  if (question.surface === "choice") {
+    return {
+      key: question.id,
+      kind: "choice",
+      question: question.text,
+      options: question.options ?? [],
+      code: question.starterCode,
+      language: question.language,
     };
   }
   return null;
@@ -100,7 +120,6 @@ export function InterviewSession({
   const { messages: transcriptMessages } = useSessionMessages(session);
   const reduceMotion = useReducedMotion();
   const hasStartedRef = useRef(false);
-  const hasQuestionEventsRef = useRef(false);
   const lastSurfaceStatePublishedAtRef = useRef(0);
   const codeAnswerRef = useRef<CodeAnswerDraft | null>(null);
   const surfaceRevisionRef = useRef(0);
@@ -149,6 +168,42 @@ export function InterviewSession({
     [session.isConnected, session.room],
   );
 
+  const publishMcqAnswer = useCallback(
+    async (answer: { optionIndex: number; optionText: string }) => {
+      if (surface?.kind !== "choice") return false;
+      if (!session.isConnected) {
+        toast.error("Could not submit the answer while disconnected.");
+        return false;
+      }
+      if (
+        answer.optionIndex < 0 ||
+        answer.optionIndex >= surface.options.length ||
+        surface.options[answer.optionIndex] !== answer.optionText
+      ) {
+        toast.error("Select a valid answer before submitting.");
+        return false;
+      }
+
+      try {
+        await session.room.localParticipant.sendText(
+          JSON.stringify({
+            questionId: surface.key,
+            optionIndex: answer.optionIndex,
+            optionText: answer.optionText,
+            submitted: true,
+          }),
+          { topic: MCQ_ANSWER_TOPIC },
+        );
+        return true;
+      } catch (error) {
+        console.error("Failed to submit MCQ answer:", error);
+        toast.error("Could not submit the answer. Please try again.");
+        return false;
+      }
+    },
+    [session.isConnected, session.room, surface],
+  );
+
   const setActiveSurface = useCallback((nextSurface: ActiveSurface) => {
     surfaceRevisionRef.current = 0;
     setSurfaceRevision(0);
@@ -167,7 +222,6 @@ export function InterviewSession({
   const handleAgentEvent = useCallback(
     (event: AgentDataEvent) => {
       if (event.type === "interview_question_started") {
-        hasQuestionEventsRef.current = true;
         void publishCodeAnswer(false);
         const nextSurface = surfaceFromQuestion(event.metadata.question);
         setActiveSurface(nextSurface);
@@ -180,32 +234,9 @@ export function InterviewSession({
           );
         } else if (nextSurface?.kind === "whiteboard") {
           toast.info("The interviewer opened a whiteboard for you.");
+        } else if (nextSurface?.kind === "choice") {
+          toast.info("The interviewer opened a multiple-choice question for you.");
         }
-        return;
-      }
-
-      // Keep compatibility with workers that have not started publishing the
-      // full question event yet. Once that event is seen, it owns UI lifecycle.
-      if (hasQuestionEventsRef.current) return;
-
-      void publishCodeAnswer(false);
-      if (event.type === "open_code_editor") {
-        setActiveSurface({
-          key: event.metadata.question,
-          kind: "code",
-          question: event.metadata.question,
-          language: event.metadata.language,
-          answerMode: "surface",
-          starterCode: "",
-        });
-        toast.info("The interviewer opened a code editor for you.");
-      } else {
-        setActiveSurface({
-          key: event.metadata.question,
-          kind: "whiteboard",
-          question: event.metadata.question,
-        });
-        toast.info("The interviewer opened a whiteboard for you.");
       }
     },
     [publishCodeAnswer, setActiveSurface],
@@ -503,19 +534,28 @@ export function InterviewSession({
                   >
                     {surface.kind === "code" ? (
                       <CodeEditorPanel
-                      question={surface.question}
-                      initialLanguage={surface.language}
-                      initialCode={surface.starterCode}
-                      readOnly={surface.answerMode === "verbal"}
-                      onContentChange={handleCodeContentChange}
-                      onSubmit={handleCodeSubmit}
-                      onClose={handleCloseSurface}
+                        question={surface.question}
+                        initialLanguage={surface.language}
+                        initialCode={surface.starterCode}
+                        readOnly={surface.answerMode === "verbal"}
+                        onContentChange={handleCodeContentChange}
+                        onSubmit={handleCodeSubmit}
+                        onClose={handleCloseSurface}
+                      />
+                    ) : surface.kind === "choice" ? (
+                      <McqPanel
+                        question={surface.question}
+                        options={surface.options}
+                        code={surface.code}
+                        language={surface.language}
+                        onSubmit={publishMcqAnswer}
+                        onClose={handleCloseSurface}
                       />
                     ) : (
                       <WhiteboardPanel
-                      question={surface.question}
-                      onContentChange={handleSurfaceContentChange}
-                      onClose={handleCloseSurface}
+                        question={surface.question}
+                        onContentChange={handleSurfaceContentChange}
+                        onClose={handleCloseSurface}
                       />
                     )}
                   </motion.div>
