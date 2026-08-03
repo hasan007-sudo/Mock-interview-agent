@@ -48,8 +48,8 @@ export function AgentTile({ compact = false }: { compact?: boolean }) {
       <motion.div
         layout
         animate={{
-          width: compact ? 48 : 96,
-          height: compact ? 48 : 96,
+          width: compact ? 48 : 160,
+          height: compact ? 48 : 160,
           opacity: isAvatarVideoReady ? 0 : 1,
         }}
         transition={transition}
