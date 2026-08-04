@@ -7,8 +7,9 @@ import type { SupportedLanguage } from "@/lib/events";
 
 const LANGUAGE_LABELS: Record<SupportedLanguage, string> = {
   java: "Java",
-  javascript: "JavaScript",
+  javascript: "Plain JavaScript",
   python: "Python",
+  react: "React",
 };
 
 export function McqPanel({

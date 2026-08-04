@@ -4,6 +4,7 @@ export const supportedLanguageSchema = z.enum([
   "java",
   "javascript",
   "python",
+  "react",
 ]);
 export const questionSurfaceSchema = z.enum([
   "verbal",

@@ -13,6 +13,8 @@ import {
 
 export const dynamic = "force-dynamic";
 
+export const MOCK_INTERVIEW_VERSION = "mock_interview";
+
 /** Room metadata is broadcast to every participant, so cap the embedded resume. */
 const MAX_RESUME_METADATA_CHARS = 16000;
 /** Set to true to restore frontend-supplied interview questions. */
@@ -50,7 +52,7 @@ export async function POST(request: Request) {
 
   if (opening) {
     metadata = JSON.stringify({
-      agent_id: "mock_interview_v5",
+      agent_id: MOCK_INTERVIEW_VERSION,
       avatar: true,
       user_name: name,
       interaction_mode: "adaptive",
@@ -72,7 +74,7 @@ export async function POST(request: Request) {
     });
   } else {
     metadata = JSON.stringify({
-      agent_id: "mock_interview_v5",
+      agent_id: MOCK_INTERVIEW_VERSION,
       avatar: true,
       user_name: name,
       interaction_mode: "auto",

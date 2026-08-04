@@ -7,7 +7,7 @@ import {
 export const dynamic = "force-dynamic";
 
 const requestSchema = z.object({
-  language: z.enum(["java", "javascript", "python"]),
+  language: z.enum(["java", "javascript", "python", "react"]),
   code: z.string().refine((code) => code.trim().length > 0),
 });
 

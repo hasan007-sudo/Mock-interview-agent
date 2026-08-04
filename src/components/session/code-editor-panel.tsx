@@ -1,6 +1,7 @@
 "use client";
 
 import Editor from "@monaco-editor/react";
+import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { CodeExecutionResult } from "@/lib/code-execution";
@@ -10,9 +11,14 @@ const MAX_CODE_ANSWER_CHARS = 20_000;
 
 const LANGUAGE_LABELS: Record<SupportedLanguage, string> = {
   java: "Java",
-  javascript: "JavaScript",
+  javascript: "Plain JavaScript",
   python: "Python",
+  react: "React",
 };
+
+function monacoLanguage(language: SupportedLanguage) {
+  return language === "react" ? "javascript" : language;
+}
 
 const OUTCOME_STYLES: Record<CodeExecutionResult["outcome"], string> = {
   completed: "bg-emerald-950 text-emerald-300 border-emerald-900",
@@ -64,7 +70,9 @@ function ExecutionConsole({ result }: { result: CodeExecutionResult }) {
         )}
         {!hasOutput && result.outcome === "completed" && (
           <p className="text-muted-foreground">
-            Program completed with no output.
+            {result.previewUrl
+              ? "React preview loaded."
+              : "Program completed with no output."}
           </p>
         )}
       </div>
@@ -100,6 +108,7 @@ export function CodeEditorPanel({
   const runAbortControllerRef = useRef<AbortController | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [runResult, setRunResult] = useState<CodeExecutionResult | null>(null);
+  const [isOutputExpanded, setIsOutputExpanded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(
@@ -115,6 +124,7 @@ export function CodeEditorPanel({
     runAbortControllerRef.current = abortController;
     setIsRunning(true);
     setRunResult(null);
+    setIsOutputExpanded(false);
     try {
       const response = await fetch("/api/code/run", {
         method: "POST",
@@ -131,6 +141,7 @@ export function CodeEditorPanel({
       const result = (await response.json()) as CodeExecutionResult;
       if (runAbortControllerRef.current === abortController) {
         setRunResult(result);
+        setIsOutputExpanded(true);
       }
     } catch (error) {
       if (abortController.signal.aborted) return;
@@ -159,6 +170,9 @@ export function CodeEditorPanel({
     }
   }
 
+  const reactPreviewUrl =
+    language === "react" ? (runResult?.previewUrl ?? null) : null;
+
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-card shadow-[var(--shadow-border)]">
       <div className="flex items-start justify-between gap-4 border-b border-border px-4 py-3">
@@ -181,7 +195,7 @@ export function CodeEditorPanel({
         <Editor
           height="100%"
           theme="vs-dark"
-          language={language}
+          language={monacoLanguage(language)}
           value={code}
           onChange={(value) => {
             if (readOnly) return;
@@ -195,6 +209,7 @@ export function CodeEditorPanel({
             setIsRunning(false);
             setCode(nextCode);
             setRunResult(null);
+            setIsOutputExpanded(false);
             onContentChange({ code: nextCode, language });
           }}
           options={{
@@ -225,6 +240,7 @@ export function CodeEditorPanel({
                   const nextLanguage = e.target.value as SupportedLanguage;
                   setLanguage(nextLanguage);
                   setRunResult(null);
+                  setIsOutputExpanded(false);
                   onContentChange({ code, language: nextLanguage });
                 }}
                 className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/15"
@@ -269,7 +285,38 @@ export function CodeEditorPanel({
             </div>
           )}
         </div>
-        {runResult && <ExecutionConsole result={runResult} />}
+        {runResult && (
+          <section className="overflow-hidden rounded-lg bg-background/45 shadow-[var(--shadow-border)]">
+            <button
+              type="button"
+              onClick={() => setIsOutputExpanded((expanded) => !expanded)}
+              aria-expanded={isOutputExpanded}
+              className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm font-medium text-secondary-foreground transition-colors hover:bg-accent/50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
+            >
+              <span>Output</span>
+              <ChevronDown
+                className={`size-4 text-muted-foreground transition-transform ${isOutputExpanded ? "rotate-180" : ""}`}
+                aria-hidden="true"
+              />
+            </button>
+            {isOutputExpanded && (
+              <div className="space-y-3 border-t border-border p-3">
+                {reactPreviewUrl && (
+                  <div className="h-72 overflow-hidden rounded-lg bg-white sm:h-80">
+                    <iframe
+                      src={reactPreviewUrl}
+                      title="React code output"
+                      className="size-full border-0 bg-white"
+                      sandbox="allow-forms allow-modals allow-same-origin allow-scripts"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                )}
+                <ExecutionConsole result={runResult} />
+              </div>
+            )}
+          </section>
+        )}
       </div>
     </div>
   );

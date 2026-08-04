@@ -1,13 +1,15 @@
 export type SupportedCodeExecutionLanguage =
   | "java"
   | "javascript"
-  | "python";
+  | "python"
+  | "react";
 
 export type CodeExecutionResult = {
   outcome: "completed" | "error" | "timeout";
   stdout: string;
   stderr: string;
   details: string | null;
+  previewUrl: string | null;
   compilationTimeMs: number | null;
   executionTimeMs: number | null;
   memoryKb: number | null;
@@ -117,10 +119,54 @@ function getJavaFilename(code: string) {
   return "Main.java";
 }
 
-function getFilename(language: SupportedCodeExecutionLanguage, code: string) {
-  if (language === "python") return "main.py";
-  if (language === "javascript") return "main.js";
-  return getJavaFilename(code);
+function getFiles(language: SupportedCodeExecutionLanguage, code: string) {
+  if (language === "python") {
+    return [{ name: "main.py", content: code }];
+  }
+  if (language === "javascript") {
+    return [{ name: "main.js", content: code }];
+  }
+  if (language === "react") {
+    return [
+      { name: "App.jsx", content: code },
+      {
+        name: "index.jsx",
+        content:
+          "import React from 'react'\nimport ReactDOM from 'react-dom/client'\nimport App from './App.jsx'\n\nReactDOM.createRoot(document.getElementById('root')).render(<App />)\n",
+      },
+      {
+        name: "index.html",
+        content:
+          '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>React code</title>\n  </head>\n  <body>\n    <div id="root"></div>\n    <script type="module" src="/index.jsx"></script>\n  </body>\n</html>\n',
+      },
+      {
+        name: "package.json",
+        content: JSON.stringify(
+          {
+            name: "react",
+            private: true,
+            version: "1.0.0",
+            type: "module",
+            scripts: {
+              dev: "vite",
+              build: "vite build --base ./",
+            },
+            dependencies: {
+              react: "^19.2.7",
+              "react-dom": "^19.2.7",
+            },
+            devDependencies: {
+              "@vitejs/plugin-react": "^4.3.4",
+              vite: "^5.0.8",
+            },
+          },
+          null,
+          2,
+        ),
+      },
+    ];
+  }
+  return [{ name: getJavaFilename(code), content: code }];
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -139,6 +185,18 @@ function asNullableString(value: unknown) {
 
 function asNullableNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function asReactPreviewUrl(language: SupportedCodeExecutionLanguage, value: string) {
+  if (language !== "react" || value.length === 0) return null;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "https:" && url.hostname === "app.onecompiler.com"
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function getProviderErrorKind(
@@ -171,6 +229,12 @@ export async function executeCode({
   apiKey: string;
   signal?: AbortSignal;
 }): Promise<CodeExecutionResult> {
+  const files = getFiles(language, code);
+  const startedAt = Date.now();
+  console.info(
+    `[EXT-API:onecompiler] start language=${language} files=${files.length}`,
+  );
+
   let response: Response;
   try {
     response = await fetch(ONECOMPILER_RUN_URL, {
@@ -182,14 +246,22 @@ export async function executeCode({
       body: JSON.stringify({
         language,
         stdin: "",
-        files: [{ name: getFilename(language, code), content: code }],
+        files,
       }),
       cache: "no-store",
       signal,
     });
-  } catch {
+  } catch (error) {
+    console.error(
+      `[EXT-API:onecompiler] failed language=${language} elapsedMs=${Date.now() - startedAt}`,
+      error,
+    );
     throw new CodeExecutionProviderError("provider");
   }
+
+  console.info(
+    `[EXT-API:onecompiler] complete language=${language} status=${response.status} elapsedMs=${Date.now() - startedAt}`,
+  );
 
   let rawBody: unknown;
   try {
@@ -216,12 +288,17 @@ export async function executeCode({
   const providerStatus = asString(body.status);
   const providerError = asString(body.error);
   if (!response.ok || providerStatus !== "success") {
+    console.error(
+      `[EXT-API:onecompiler] provider-failure language=${language} status=${response.status}`,
+    );
     throw new CodeExecutionProviderError(
       getProviderErrorKind(response.status, providerError),
     );
   }
 
-  const stdout = asString(body.stdout);
+  const providerStdout = asString(body.stdout);
+  const previewUrl = asReactPreviewUrl(language, providerStdout);
+  const stdout = previewUrl ? "" : providerStdout;
   const stderr = asString(body.stderr);
   const details = asNullableString(body.exception) ?? asNullableString(body.error);
   const outcome = /\bE001\b|operation\s+timed?\s*out/i.test(providerError)
@@ -235,6 +312,7 @@ export async function executeCode({
     stdout,
     stderr,
     details,
+    previewUrl,
     compilationTimeMs: asNullableNumber(body.compilationTime),
     executionTimeMs: asNullableNumber(body.executionTime),
     memoryKb: asNullableNumber(body.memoryUsed),
