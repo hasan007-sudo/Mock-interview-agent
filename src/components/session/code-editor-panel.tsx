@@ -212,31 +212,52 @@ export function CodeEditorPanel({
         />
       </div>
 
-      {!readOnly && (
-        <div className="space-y-3 border-t border-border px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <select
-              value={language}
-              onChange={(e) => {
-                runAbortControllerRef.current?.abort();
-                runAbortControllerRef.current = null;
-                setIsRunning(false);
-                const nextLanguage = e.target.value as SupportedLanguage;
-                setLanguage(nextLanguage);
-                setRunResult(null);
-                onContentChange({ code, language: nextLanguage });
-              }}
-              className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/15"
-            >
-              {(Object.keys(LANGUAGE_LABELS) as SupportedLanguage[]).map(
-                (lang) => (
-                  <option key={lang} value={lang}>
-                    {LANGUAGE_LABELS[lang]}
-                  </option>
-                ),
-              )}
-            </select>
-            <div className="flex items-center gap-2">
+      <div className="space-y-3 border-t border-border px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          {!readOnly ? (
+            <>
+              <select
+                value={language}
+                onChange={(e) => {
+                  runAbortControllerRef.current?.abort();
+                  runAbortControllerRef.current = null;
+                  setIsRunning(false);
+                  const nextLanguage = e.target.value as SupportedLanguage;
+                  setLanguage(nextLanguage);
+                  setRunResult(null);
+                  onContentChange({ code, language: nextLanguage });
+                }}
+                className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/15"
+              >
+                {(Object.keys(LANGUAGE_LABELS) as SupportedLanguage[]).map(
+                  (lang) => (
+                    <option key={lang} value={lang}>
+                      {LANGUAGE_LABELS[lang]}
+                    </option>
+                  ),
+                )}
+              </select>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleRun}
+                  disabled={!code.trim() || isRunning}
+                  className="rounded-lg border border-input bg-secondary px-4 py-1.5 text-sm font-medium text-secondary-foreground transition-[background-color,scale] hover:bg-accent active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isRunning ? "Running…" : "Run"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={!code.trim() || isSaving}
+                  className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground transition-[background-color,scale] hover:bg-violet-200 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isSaving ? "Saving…" : "Save answer"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="ml-auto flex items-center gap-2">
               <button
                 type="button"
                 onClick={handleRun}
@@ -245,19 +266,11 @@ export function CodeEditorPanel({
               >
                 {isRunning ? "Running…" : "Run"}
               </button>
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={!code.trim() || isSaving}
-                className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground transition-[background-color,scale] hover:bg-violet-200 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isSaving ? "Saving…" : "Save answer"}
-              </button>
             </div>
-          </div>
-          {runResult && <ExecutionConsole result={runResult} />}
+          )}
         </div>
-      )}
+        {runResult && <ExecutionConsole result={runResult} />}
+      </div>
     </div>
   );
 }

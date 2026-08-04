@@ -50,7 +50,7 @@ export async function POST(request: Request) {
 
   if (opening) {
     metadata = JSON.stringify({
-      agent_id: "mock_interview_v4",
+      agent_id: "mock_interview_v5",
       avatar: true,
       user_name: name,
       interaction_mode: "adaptive",
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
     });
   } else {
     metadata = JSON.stringify({
-      agent_id: "mock_interview_v4",
+      agent_id: "mock_interview_v5",
       avatar: true,
       user_name: name,
       interaction_mode: "auto",
