@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import type { SupportedLanguage } from "@/lib/events";
 
 const LANGUAGE_LABELS: Record<SupportedLanguage, string> = {
+  html: "HTML/CSS/JavaScript",
   java: "Java",
   javascript: "Plain JavaScript",
   python: "Python",

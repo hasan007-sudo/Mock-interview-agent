@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const supportedLanguageSchema = z.enum([
+  "html",
   "java",
   "javascript",
   "python",

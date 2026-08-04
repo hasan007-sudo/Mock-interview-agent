@@ -1,4 +1,5 @@
 export type SupportedCodeExecutionLanguage =
+  | "html"
   | "java"
   | "javascript"
   | "python"
@@ -13,6 +14,7 @@ export type CodeExecutionResult = {
   compilationTimeMs: number | null;
   executionTimeMs: number | null;
   memoryKb: number | null;
+  consoleChannel: string | null;
 };
 
 type ProviderErrorKind = "auth" | "quota" | "provider";
@@ -25,6 +27,86 @@ export class CodeExecutionProviderError extends Error {
 }
 
 const ONECOMPILER_RUN_URL = "https://api.onecompiler.com/v1/run";
+const PREVIEW_CONSOLE_SOURCE = "mock-interview-code-preview";
+
+function previewConsoleBridge(channel: string) {
+  return `
+const previewConsoleChannel = ${JSON.stringify(channel)};
+const previewConsoleSource = ${JSON.stringify(PREVIEW_CONSOLE_SOURCE)};
+const originalConsole = {
+  log: console.log.bind(console),
+  info: console.info.bind(console),
+  warn: console.warn.bind(console),
+  error: console.error.bind(console),
+  clear: console.clear.bind(console),
+};
+
+function serializeConsoleValue(value) {
+  if (typeof value === "string") return value;
+  if (typeof value === "undefined") return "undefined";
+  if (value === null) return "null";
+  if (value instanceof Error) return value.stack || value.message;
+  try {
+    const seen = new WeakSet();
+    const serialized = JSON.stringify(value, (_key, nestedValue) => {
+      if (typeof nestedValue === "bigint") return nestedValue.toString() + "n";
+      if (typeof nestedValue === "object" && nestedValue !== null) {
+        if (seen.has(nestedValue)) return "[Circular]";
+        seen.add(nestedValue);
+      }
+      return nestedValue;
+    });
+    return typeof serialized === "string" ? serialized : String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function emitConsoleMessage(level, values) {
+  window.parent.postMessage(
+    {
+      source: previewConsoleSource,
+      type: "console",
+      channel: previewConsoleChannel,
+      level,
+      values: values.map(serializeConsoleValue),
+    },
+    "*",
+  );
+}
+
+for (const level of ["log", "info", "warn", "error"]) {
+  console[level] = (...values) => {
+    originalConsole[level](...values);
+    emitConsoleMessage(level, values);
+  };
+}
+
+console.clear = () => {
+  originalConsole.clear();
+  emitConsoleMessage("clear", []);
+};
+
+window.addEventListener("error", (event) => {
+  emitConsoleMessage("error", [event.error || event.message]);
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  emitConsoleMessage("error", [event.reason]);
+});
+`.trim();
+}
+
+function injectHtmlBridge(code: string, bridge: string) {
+  const bridgeTag = `<script>${bridge}</script>`;
+  if (/<head(?:\s[^>]*)?>/i.test(code)) {
+    return code.replace(/<head(?:\s[^>]*)?>/i, (head) => `${head}\n${bridgeTag}`);
+  }
+  if (/<body(?:\s[^>]*)?>/i.test(code)) {
+    return code.replace(/<body(?:\s[^>]*)?>/i, (body) => `${body}\n${bridgeTag}`);
+  }
+  return `${bridgeTag}\n${code}`;
+}
 
 function maskJavaCommentsAndStrings(code: string) {
   let masked = "";
@@ -119,20 +201,47 @@ function getJavaFilename(code: string) {
   return "Main.java";
 }
 
-function getFiles(language: SupportedCodeExecutionLanguage, code: string) {
+function getFiles(
+  language: SupportedCodeExecutionLanguage,
+  code: string,
+  consoleChannel: string | null,
+) {
   if (language === "python") {
     return [{ name: "main.py", content: code }];
   }
   if (language === "javascript") {
     return [{ name: "main.js", content: code }];
   }
+  if (language === "html") {
+    if (!consoleChannel) {
+      throw new Error("HTML execution requires a console channel");
+    }
+    return [
+      {
+        name: "index.html",
+        content: injectHtmlBridge(code, previewConsoleBridge(consoleChannel)),
+      },
+    ];
+  }
   if (language === "react") {
+    if (!consoleChannel) {
+      throw new Error("React execution requires a console channel");
+    }
     return [
       { name: "App.jsx", content: code },
       {
         name: "index.jsx",
-        content:
-          "import React from 'react'\nimport ReactDOM from 'react-dom/client'\nimport App from './App.jsx'\n\nReactDOM.createRoot(document.getElementById('root')).render(<App />)\n",
+        content: `import React from "react";
+import ReactDOM from "react-dom/client";
+
+${previewConsoleBridge(consoleChannel)}
+
+import("./App.jsx")
+  .then(({ default: App }) => {
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  })
+  .catch((error) => console.error(error));
+`,
       },
       {
         name: "index.html",
@@ -187,8 +296,13 @@ function asNullableNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function asReactPreviewUrl(language: SupportedCodeExecutionLanguage, value: string) {
-  if (language !== "react" || value.length === 0) return null;
+function asWebPreviewUrl(language: SupportedCodeExecutionLanguage, value: string) {
+  if (
+    (language !== "html" && language !== "react") ||
+    value.length === 0
+  ) {
+    return null;
+  }
   try {
     const url = new URL(value.trim());
     return url.protocol === "https:" && url.hostname === "app.onecompiler.com"
@@ -229,7 +343,9 @@ export async function executeCode({
   apiKey: string;
   signal?: AbortSignal;
 }): Promise<CodeExecutionResult> {
-  const files = getFiles(language, code);
+  const consoleChannel =
+    language === "html" || language === "react" ? crypto.randomUUID() : null;
+  const files = getFiles(language, code, consoleChannel);
   const startedAt = Date.now();
   console.info(
     `[EXT-API:onecompiler] start language=${language} files=${files.length}`,
@@ -297,7 +413,7 @@ export async function executeCode({
   }
 
   const providerStdout = asString(body.stdout);
-  const previewUrl = asReactPreviewUrl(language, providerStdout);
+  const previewUrl = asWebPreviewUrl(language, providerStdout);
   const stdout = previewUrl ? "" : providerStdout;
   const stderr = asString(body.stderr);
   const details = asNullableString(body.exception) ?? asNullableString(body.error);
@@ -316,5 +432,6 @@ export async function executeCode({
     compilationTimeMs: asNullableNumber(body.compilationTime),
     executionTimeMs: asNullableNumber(body.executionTime),
     memoryKb: asNullableNumber(body.memoryUsed),
+    consoleChannel: previewUrl ? consoleChannel : null,
   };
 }

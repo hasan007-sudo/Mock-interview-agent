@@ -4,16 +4,46 @@ import Editor from "@monaco-editor/react";
 import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { z } from "zod";
 import type { CodeExecutionResult } from "@/lib/code-execution";
 import type { SupportedLanguage } from "@/lib/events";
 
 const MAX_CODE_ANSWER_CHARS = 20_000;
 
 const LANGUAGE_LABELS: Record<SupportedLanguage, string> = {
+  html: "HTML/CSS/JavaScript",
   java: "Java",
   javascript: "Plain JavaScript",
   python: "Python",
   react: "React",
+};
+
+const browserConsoleMessageSchema = z
+  .object({
+    source: z.literal("mock-interview-code-preview"),
+    type: z.literal("console"),
+    channel: z.string().uuid(),
+    level: z.enum(["log", "info", "warn", "error", "clear"]),
+    values: z.array(z.string().max(4_000)).max(20),
+  })
+  .strict();
+
+type BrowserConsoleEntry = {
+  id: number;
+  level: "log" | "info" | "warn" | "error";
+  text: string;
+};
+
+type PreviewConsoleTarget = {
+  channel: string;
+  origin: string;
+};
+
+const BROWSER_CONSOLE_STYLES: Record<BrowserConsoleEntry["level"], string> = {
+  log: "text-foreground",
+  info: "text-sky-300",
+  warn: "text-amber-300",
+  error: "text-red-300",
 };
 
 function monacoLanguage(language: SupportedLanguage) {
@@ -26,9 +56,18 @@ const OUTCOME_STYLES: Record<CodeExecutionResult["outcome"], string> = {
   timeout: "bg-amber-950 text-amber-300 border-amber-900",
 };
 
-function ExecutionConsole({ result }: { result: CodeExecutionResult }) {
+function ExecutionConsole({
+  result,
+  browserEntries,
+}: {
+  result: CodeExecutionResult;
+  browserEntries: BrowserConsoleEntry[];
+}) {
   const hasOutput = Boolean(
-    result.stdout.trim() || result.stderr.trim() || result.details?.trim(),
+    result.stdout.trim() ||
+      result.stderr.trim() ||
+      result.details?.trim() ||
+      browserEntries.length,
   );
 
   return (
@@ -52,7 +91,10 @@ function ExecutionConsole({ result }: { result: CodeExecutionResult }) {
           {result.memoryKb !== null && <span>{result.memoryKb} KB</span>}
         </div>
       </div>
-      <div className="max-h-44 space-y-2 overflow-auto px-3 py-2 font-mono text-xs leading-5">
+      <div
+        className="max-h-44 space-y-2 overflow-auto px-3 py-2 font-mono text-xs leading-5"
+        aria-live="polite"
+      >
         {result.stdout.trim() && (
           <pre className="whitespace-pre-wrap break-words text-emerald-300">
             {result.stdout}
@@ -68,10 +110,19 @@ function ExecutionConsole({ result }: { result: CodeExecutionResult }) {
             {result.details}
           </pre>
         )}
+        {browserEntries.map((entry) => (
+          <pre
+            key={entry.id}
+            className={`whitespace-pre-wrap break-words ${BROWSER_CONSOLE_STYLES[entry.level]}`}
+          >
+            {entry.level === "log" ? "" : `[${entry.level}] `}
+            {entry.text}
+          </pre>
+        ))}
         {!hasOutput && result.outcome === "completed" && (
           <p className="text-muted-foreground">
             {result.previewUrl
-              ? "React preview loaded."
+              ? "Preview loaded. Browser console output will appear here."
               : "Program completed with no output."}
           </p>
         )}
@@ -106,10 +157,16 @@ export function CodeEditorPanel({
   const [language, setLanguage] = useState<SupportedLanguage>(initialLanguage);
   const [code, setCode] = useState(initialCode);
   const runAbortControllerRef = useRef<AbortController | null>(null);
+  const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const previewConsoleTargetRef = useRef<PreviewConsoleTarget | null>(null);
+  const browserConsoleSequenceRef = useRef(0);
   const [isRunning, setIsRunning] = useState(false);
   const [runResult, setRunResult] = useState<CodeExecutionResult | null>(null);
   const [isOutputExpanded, setIsOutputExpanded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [browserConsoleEntries, setBrowserConsoleEntries] = useState<
+    BrowserConsoleEntry[]
+  >([]);
 
   useEffect(
     () => () => {
@@ -118,12 +175,43 @@ export function CodeEditorPanel({
     [],
   );
 
+  useEffect(() => {
+    function handlePreviewMessage(event: MessageEvent) {
+      const target = previewConsoleTargetRef.current;
+      if (
+        !target ||
+        event.origin !== target.origin ||
+        event.source !== previewFrameRef.current?.contentWindow
+      ) {
+        return;
+      }
+      const parsed = browserConsoleMessageSchema.safeParse(event.data);
+      if (!parsed.success || parsed.data.channel !== target.channel) return;
+      if (parsed.data.level === "clear") {
+        setBrowserConsoleEntries([]);
+        return;
+      }
+      browserConsoleSequenceRef.current += 1;
+      const entry: BrowserConsoleEntry = {
+        id: browserConsoleSequenceRef.current,
+        level: parsed.data.level,
+        text: parsed.data.values.join(" "),
+      };
+      setBrowserConsoleEntries((entries) => [...entries.slice(-199), entry]);
+    }
+
+    window.addEventListener("message", handlePreviewMessage);
+    return () => window.removeEventListener("message", handlePreviewMessage);
+  }, []);
+
   async function handleRun() {
     if (!code.trim() || isRunning) return;
     const abortController = new AbortController();
     runAbortControllerRef.current = abortController;
     setIsRunning(true);
     setRunResult(null);
+    previewConsoleTargetRef.current = null;
+    setBrowserConsoleEntries([]);
     setIsOutputExpanded(false);
     try {
       const response = await fetch("/api/code/run", {
@@ -140,6 +228,13 @@ export function CodeEditorPanel({
       }
       const result = (await response.json()) as CodeExecutionResult;
       if (runAbortControllerRef.current === abortController) {
+        previewConsoleTargetRef.current =
+          result.previewUrl && result.consoleChannel
+            ? {
+                channel: result.consoleChannel,
+                origin: new URL(result.previewUrl).origin,
+              }
+            : null;
         setRunResult(result);
         setIsOutputExpanded(true);
       }
@@ -170,8 +265,10 @@ export function CodeEditorPanel({
     }
   }
 
-  const reactPreviewUrl =
-    language === "react" ? (runResult?.previewUrl ?? null) : null;
+  const webPreviewUrl =
+    language === "html" || language === "react"
+      ? (runResult?.previewUrl ?? null)
+      : null;
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-card shadow-[var(--shadow-border)]">
@@ -209,6 +306,8 @@ export function CodeEditorPanel({
             setIsRunning(false);
             setCode(nextCode);
             setRunResult(null);
+            previewConsoleTargetRef.current = null;
+            setBrowserConsoleEntries([]);
             setIsOutputExpanded(false);
             onContentChange({ code: nextCode, language });
           }}
@@ -240,6 +339,8 @@ export function CodeEditorPanel({
                   const nextLanguage = e.target.value as SupportedLanguage;
                   setLanguage(nextLanguage);
                   setRunResult(null);
+                  previewConsoleTargetRef.current = null;
+                  setBrowserConsoleEntries([]);
                   setIsOutputExpanded(false);
                   onContentChange({ code, language: nextLanguage });
                 }}
@@ -301,18 +402,22 @@ export function CodeEditorPanel({
             </button>
             {isOutputExpanded && (
               <div className="space-y-3 border-t border-border p-3">
-                {reactPreviewUrl && (
+                {webPreviewUrl && (
                   <div className="h-72 overflow-hidden rounded-lg bg-white sm:h-80">
                     <iframe
-                      src={reactPreviewUrl}
-                      title="React code output"
+                      ref={previewFrameRef}
+                      src={webPreviewUrl}
+                      title="Code preview"
                       className="size-full border-0 bg-white"
                       sandbox="allow-forms allow-modals allow-same-origin allow-scripts"
                       referrerPolicy="no-referrer"
                     />
                   </div>
                 )}
-                <ExecutionConsole result={runResult} />
+                <ExecutionConsole
+                  result={runResult}
+                  browserEntries={browserConsoleEntries}
+                />
               </div>
             )}
           </section>
