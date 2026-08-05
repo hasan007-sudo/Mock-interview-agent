@@ -15,6 +15,8 @@ const TRACK_OPTIONS = [
   "DevOps",
 ];
 
+const SHOW_DEV_DEBUG = process.env.NEXT_PUBLIC_DEV_DEBUG === "true";
+
 export default function Home() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -222,7 +224,7 @@ export default function Home() {
           )}
         </form>
 
-        {parsedOpening && (
+        {SHOW_DEV_DEBUG && parsedOpening && (
           <div className="mt-6 space-y-4 rounded-xl border border-border bg-background/50 p-4 sm:p-5">
             <h2 className="text-sm font-medium text-secondary-foreground">
               Interview plan preview
