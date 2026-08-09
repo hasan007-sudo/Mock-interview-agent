@@ -1,8 +1,7 @@
 "use client";
 
 import Editor from "@monaco-editor/react";
-import { ChevronDown } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import type { CodeExecutionResult } from "@/lib/code-execution";
@@ -154,6 +153,11 @@ export function CodeEditorPanel({
   }) => Promise<boolean>;
   onClose: () => void;
 }) {
+  const tabId = useId();
+  const codeTabId = `${tabId}-code-tab`;
+  const codePanelId = `${tabId}-code-panel`;
+  const outputTabId = `${tabId}-output-tab`;
+  const outputPanelId = `${tabId}-output-panel`;
   const [language, setLanguage] = useState<SupportedLanguage>(initialLanguage);
   const [code, setCode] = useState(initialCode);
   const runAbortControllerRef = useRef<AbortController | null>(null);
@@ -162,7 +166,7 @@ export function CodeEditorPanel({
   const browserConsoleSequenceRef = useRef(0);
   const [isRunning, setIsRunning] = useState(false);
   const [runResult, setRunResult] = useState<CodeExecutionResult | null>(null);
-  const [isOutputExpanded, setIsOutputExpanded] = useState(false);
+  const [activeTab, setActiveTab] = useState<"code" | "output">("code");
   const [isSaving, setIsSaving] = useState(false);
   const [browserConsoleEntries, setBrowserConsoleEntries] = useState<
     BrowserConsoleEntry[]
@@ -212,7 +216,7 @@ export function CodeEditorPanel({
     setRunResult(null);
     previewConsoleTargetRef.current = null;
     setBrowserConsoleEntries([]);
-    setIsOutputExpanded(false);
+    setActiveTab("output");
     try {
       const response = await fetch("/api/code/run", {
         method: "POST",
@@ -236,11 +240,11 @@ export function CodeEditorPanel({
               }
             : null;
         setRunResult(result);
-        setIsOutputExpanded(true);
       }
     } catch (error) {
       if (abortController.signal.aborted) return;
       console.error(error);
+      setActiveTab("code");
       toast.error(
         error instanceof Error ? error.message : "Code execution failed.",
       );
@@ -288,45 +292,118 @@ export function CodeEditorPanel({
         </button>
       </div>
 
-      <div className="min-h-0 flex-1">
-        <Editor
-          height="100%"
-          theme="vs-dark"
-          language={monacoLanguage(language)}
-          value={code}
-          onChange={(value) => {
-            if (readOnly) return;
-            const nextCode = value ?? "";
-            if (nextCode.length > MAX_CODE_ANSWER_CHARS) {
-              toast.error("Code answers are limited to 20,000 characters.");
-              return;
-            }
-            runAbortControllerRef.current?.abort();
-            runAbortControllerRef.current = null;
-            setIsRunning(false);
-            setCode(nextCode);
-            setRunResult(null);
-            previewConsoleTargetRef.current = null;
-            setBrowserConsoleEntries([]);
-            setIsOutputExpanded(false);
-            onContentChange({ code: nextCode, language });
-          }}
-          options={{
-            minimap: { enabled: false },
-            fontSize: 14,
-            wordWrap: "on",
-            scrollBeyondLastLine: false,
-            automaticLayout: true,
-            readOnly,
-            domReadOnly: readOnly,
-          }}
-          loading={
-            <p className="text-sm text-muted-foreground">Loading editor…</p>
-          }
-        />
+      <div
+        role="tablist"
+        aria-label="Code editor views"
+        className="flex shrink-0 items-end gap-1 border-b border-border bg-background/35 px-3 pt-2"
+      >
+        <button
+          type="button"
+          role="tab"
+          id={codeTabId}
+          aria-controls={codePanelId}
+          aria-selected={activeTab === "code"}
+          onClick={() => setActiveTab("code")}
+          className="border-b-2 border-transparent px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:rounded-t-md focus-visible:outline-2 focus-visible:outline-ring aria-selected:border-primary aria-selected:text-foreground"
+        >
+          Code
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id={outputTabId}
+          aria-controls={outputPanelId}
+          aria-selected={activeTab === "output"}
+          onClick={() => setActiveTab("output")}
+          className="border-b-2 border-transparent px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:rounded-t-md focus-visible:outline-2 focus-visible:outline-ring aria-selected:border-primary aria-selected:text-foreground"
+        >
+          Output
+        </button>
       </div>
 
-      <div className="space-y-3 border-t border-border px-4 py-3">
+      <div className="min-h-0 flex-1">
+        <div
+          role="tabpanel"
+          id={codePanelId}
+          aria-labelledby={codeTabId}
+          hidden={activeTab !== "code"}
+          className="h-full"
+        >
+          <Editor
+            height="100%"
+            theme="vs-dark"
+            language={monacoLanguage(language)}
+            value={code}
+            onChange={(value) => {
+              if (readOnly) return;
+              const nextCode = value ?? "";
+              if (nextCode.length > MAX_CODE_ANSWER_CHARS) {
+                toast.error("Code answers are limited to 20,000 characters.");
+                return;
+              }
+              runAbortControllerRef.current?.abort();
+              runAbortControllerRef.current = null;
+              setIsRunning(false);
+              setCode(nextCode);
+              setRunResult(null);
+              previewConsoleTargetRef.current = null;
+              setBrowserConsoleEntries([]);
+              setActiveTab("code");
+              onContentChange({ code: nextCode, language });
+            }}
+            options={{
+              minimap: { enabled: false },
+              fontSize: 14,
+              wordWrap: "on",
+              scrollBeyondLastLine: false,
+              automaticLayout: true,
+              readOnly,
+              domReadOnly: readOnly,
+            }}
+            loading={
+              <p className="text-sm text-muted-foreground">Loading editor…</p>
+            }
+          />
+        </div>
+        <div
+          role="tabpanel"
+          id={outputPanelId}
+          aria-labelledby={outputTabId}
+          hidden={activeTab !== "output"}
+          className="h-full overflow-auto bg-background/45 p-4"
+        >
+          {isRunning ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              Running code…
+            </div>
+          ) : runResult ? (
+            <div className="space-y-3">
+              {webPreviewUrl && (
+                <div className="h-72 overflow-hidden rounded-lg bg-white sm:h-80">
+                  <iframe
+                    ref={previewFrameRef}
+                    src={webPreviewUrl}
+                    title="Code preview"
+                    className="size-full border-0 bg-white"
+                    sandbox="allow-forms allow-modals allow-same-origin allow-scripts"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+              )}
+              <ExecutionConsole
+                result={runResult}
+                browserEntries={browserConsoleEntries}
+              />
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              Run your code to see its output here.
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="border-t border-border px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           {!readOnly ? (
             <>
@@ -341,7 +418,7 @@ export function CodeEditorPanel({
                   setRunResult(null);
                   previewConsoleTargetRef.current = null;
                   setBrowserConsoleEntries([]);
-                  setIsOutputExpanded(false);
+                  setActiveTab("code");
                   onContentChange({ code, language: nextLanguage });
                 }}
                 className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/15"
@@ -386,42 +463,6 @@ export function CodeEditorPanel({
             </div>
           )}
         </div>
-        {runResult && (
-          <section className="overflow-hidden rounded-lg bg-background/45 shadow-[var(--shadow-border)]">
-            <button
-              type="button"
-              onClick={() => setIsOutputExpanded((expanded) => !expanded)}
-              aria-expanded={isOutputExpanded}
-              className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm font-medium text-secondary-foreground transition-colors hover:bg-accent/50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
-            >
-              <span>Output</span>
-              <ChevronDown
-                className={`size-4 text-muted-foreground transition-transform ${isOutputExpanded ? "rotate-180" : ""}`}
-                aria-hidden="true"
-              />
-            </button>
-            {isOutputExpanded && (
-              <div className="space-y-3 border-t border-border p-3">
-                {webPreviewUrl && (
-                  <div className="h-72 overflow-hidden rounded-lg bg-white sm:h-80">
-                    <iframe
-                      ref={previewFrameRef}
-                      src={webPreviewUrl}
-                      title="Code preview"
-                      className="size-full border-0 bg-white"
-                      sandbox="allow-forms allow-modals allow-same-origin allow-scripts"
-                      referrerPolicy="no-referrer"
-                    />
-                  </div>
-                )}
-                <ExecutionConsole
-                  result={runResult}
-                  browserEntries={browserConsoleEntries}
-                />
-              </div>
-            )}
-          </section>
-        )}
       </div>
     </div>
   );

@@ -21,6 +21,21 @@ export const DEFAULT_QUESTIONS: InterviewQuestion[] = [
   },
 ];
 
+export const SYSTEM_DESIGN_TEST_QUESTIONS: InterviewQuestion[] = [
+  {
+    id: "system-design-w07-session-14-news-feed",
+    text: "Design a News feed system.",
+    spokenText: "Design a News feed system.",
+    questionType: "verbal",
+    responseMode: "surface",
+    surface: "whiteboard",
+    answerMode: "surface",
+    difficulty: "hard",
+    domain: ["system-design"],
+    topics: ["system-design", "architecture"],
+  },
+];
+
 const interviewQuestionsSchema = z.array(interviewQuestionSchema).min(1).max(12);
 
 export function validateQuestions(

@@ -8,6 +8,7 @@ import { buildAdaptivePlan, type VasanthOpening } from "@/lib/opening";
 import {
   buildInterviewPlan,
   DEFAULT_QUESTIONS,
+  SYSTEM_DESIGN_TEST_QUESTIONS,
   validateQuestions,
 } from "@/lib/questions";
 
@@ -17,8 +18,8 @@ export const MOCK_INTERVIEW_VERSION = "mock_interview";
 
 /** Room metadata is broadcast to every participant, so cap the embedded resume. */
 const MAX_RESUME_METADATA_CHARS = 16000;
-/** Set to true to restore frontend-supplied interview questions. */
-const SEND_FRONTEND_QUESTIONS = false;
+const INTERVIEW_QUESTION_MODE =
+  process.env.INTERVIEW_QUESTION_MODE ?? "backend";
 
 export async function POST(request: Request) {
   let name = "";
@@ -38,11 +39,14 @@ export async function POST(request: Request) {
   const resumeMarkdown =
     typeof body?.markdown === "string" ? body.markdown.trim() : "";
 
-  const questionResult = SEND_FRONTEND_QUESTIONS
-    ? rawQuestions === undefined
-      ? { questions: DEFAULT_QUESTIONS }
-      : validateQuestions(rawQuestions)
-    : null;
+  const questionResult =
+    INTERVIEW_QUESTION_MODE === "system-design-only"
+      ? validateQuestions(SYSTEM_DESIGN_TEST_QUESTIONS)
+      : INTERVIEW_QUESTION_MODE === "frontend"
+        ? rawQuestions === undefined
+          ? { questions: DEFAULT_QUESTIONS }
+          : validateQuestions(rawQuestions)
+        : null;
   if (questionResult && "error" in questionResult) {
     return Response.json({ error: questionResult.error }, { status: 400 });
   }

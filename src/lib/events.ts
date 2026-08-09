@@ -110,12 +110,25 @@ export const interviewQuestionSchema = z
     }
   });
 
-const agentDataEventSchema = z.object({
+const interviewQuestionStartedSchema = z.object({
   type: z.literal("interview_question_started"),
   status: z.literal("started").optional(),
   timestamp: z.string().optional(),
   metadata: z.object({ question: interviewQuestionSchema }).strict(),
 });
+
+const whiteboardAnswerStatusSchema = z.object({
+  type: z.literal("whiteboard_answer_status"),
+  questionId: z.string().trim().min(1),
+  revision: z.number().int().nonnegative(),
+  status: z.enum(["accepted", "rejected"]),
+  message: z.string().optional(),
+});
+
+const agentDataEventSchema = z.discriminatedUnion("type", [
+  interviewQuestionStartedSchema,
+  whiteboardAnswerStatusSchema,
+]);
 
 export type InterviewQuestion = z.infer<typeof interviewQuestionSchema>;
 export type AgentDataEvent = z.infer<typeof agentDataEventSchema>;
