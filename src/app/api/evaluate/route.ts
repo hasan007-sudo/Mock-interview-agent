@@ -92,7 +92,7 @@ export async function POST(request: Request) {
       ],
     },
   ];
-  const modelName = process.env.OPENROUTER_MODEL ?? "openai/gpt-4o";
+  const modelName = "openai/gpt-4o";
   const startedAt = Date.now();
   try {
     const openrouter = createOpenRouter({ apiKey });
@@ -116,6 +116,7 @@ export async function POST(request: Request) {
     console.info(
       `${LOG_PREFIX} completed model=${modelName} question_id=${questionId} elapsed_ms=${Date.now() - startedAt}`,
     );
+    console.log('Evaluate response', {payload})
     return Response.json({ payload, signature });
   } catch (error) {
     if (NoObjectGeneratedError.isInstance(error)) {
