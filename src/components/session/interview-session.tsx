@@ -81,7 +81,6 @@ const LAYOUT_TRANSITION = {
 const SURFACE_STATE_PUBLISH_INTERVAL_MS = 5_000;
 const CODE_ANSWER_TOPIC = "candidate.code_answer";
 const MCQ_ANSWER_TOPIC = "candidate.mcq_answer";
-const WHITEBOARD_ANSWER_TOPIC = "candidate.whiteboard_answer";
 const WHITEBOARD_EVALUATION_TOPIC = "candidate.whiteboard_evaluation";
 const WHITEBOARD_ACK_TIMEOUT_MS = 15_000;
 const MAX_CODE_ANSWER_CHARS = 20_000;
@@ -403,18 +402,8 @@ export function InterviewSession({
       const question = surface.question;
       const revision = surfaceRevisionRef.current;
       const acknowledgementKey = `${questionId}:${revision}`;
+      let acknowledgementTimeout: number | undefined;
       setWhiteboardStatus("uploading");
-
-      const acknowledgement = new Promise<WhiteboardAcknowledgement>((resolve) => {
-        whiteboardAcknowledgementsRef.current.set(acknowledgementKey, resolve);
-      });
-      const timeout = window.setTimeout(() => {
-        const resolve = whiteboardAcknowledgementsRef.current.get(acknowledgementKey);
-        if (resolve) {
-          whiteboardAcknowledgementsRef.current.delete(acknowledgementKey);
-          resolve({ accepted: false, message: "The interviewer did not acknowledge the drawing." });
-        }
-      }, WHITEBOARD_ACK_TIMEOUT_MS);
 
       try {
         const file = new File(
@@ -422,57 +411,119 @@ export function InterviewSession({
           `whiteboard.${revision}.${imageSha256}.png`,
           { type: "image/png" },
         );
-        await session.room.localParticipant.sendFile(file, {
-          topic: WHITEBOARD_ANSWER_TOPIC,
-          mimeType: "image/png",
+        const authorization = { Authorization: `Bearer ${connection.participantToken}` };
+        const uploadResponse = await fetch("/api/whiteboard-upload", {
+          method: "POST",
+          headers: { ...authorization, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            roomName: connection.roomName,
+            participantIdentity: session.room.localParticipant.identity,
+            questionId,
+            revision,
+            imageSha256,
+            imageBytes: file.size,
+          }),
         });
+        if (!uploadResponse.ok) {
+          throw new Error(`Whiteboard upload setup failed with ${uploadResponse.status}`);
+        }
+        const upload = (await uploadResponse.json()) as {
+          uploadUrl?: unknown;
+          s3Key?: unknown;
+          headers?: unknown;
+        };
+        if (
+          typeof upload.uploadUrl !== "string" ||
+          typeof upload.s3Key !== "string" ||
+          !upload.headers ||
+          typeof upload.headers !== "object"
+        ) {
+          throw new Error("Whiteboard upload setup returned an invalid response");
+        }
+        const uploadStartedAt = Date.now();
+        console.info(
+          `[EXT-API:s3-whiteboard] upload_started question_id=${questionId} bytes=${file.size}`,
+        );
+        let s3Response: Response;
+        try {
+          s3Response = await fetch(upload.uploadUrl, {
+            method: "PUT",
+            headers: upload.headers as Record<string, string>,
+            body: file,
+          });
+        } catch (error) {
+          console.error(
+            `[EXT-API:s3-whiteboard] upload_failed question_id=${questionId} elapsed_ms=${Date.now() - uploadStartedAt}`,
+            error,
+          );
+          throw error;
+        }
+        if (!s3Response.ok) {
+          console.error(
+            `[EXT-API:s3-whiteboard] upload_failed question_id=${questionId} status=${s3Response.status} elapsed_ms=${Date.now() - uploadStartedAt}`,
+          );
+          throw new Error(`Whiteboard S3 upload failed with ${s3Response.status}`);
+        }
+        console.info(
+          `[EXT-API:s3-whiteboard] upload_completed question_id=${questionId} bytes=${file.size} elapsed_ms=${Date.now() - uploadStartedAt}`,
+        );
+
+        setWhiteboardStatus("received");
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+        setWhiteboardStatus("analyzing");
+        const response = await fetch("/api/evaluate", {
+          method: "POST",
+          headers: { ...authorization, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question,
+            roomName: connection.roomName,
+            participantIdentity: session.room.localParticipant.identity,
+            questionId,
+            revision,
+            imageSha256,
+            imageBytes: file.size,
+            s3Key: upload.s3Key,
+          }),
+        });
+        if (!response.ok) {
+          throw new Error(`Whiteboard evaluation failed with ${response.status}`);
+        }
+        const signedAssessment = (await response.json()) as {
+          payload?: unknown;
+          signature?: unknown;
+        };
+        if (
+          typeof signedAssessment.payload !== "string" ||
+          typeof signedAssessment.signature !== "string"
+        ) {
+          throw new Error("Whiteboard evaluation returned an invalid response");
+        }
+        const acknowledgement = new Promise<WhiteboardAcknowledgement>((resolve) => {
+          whiteboardAcknowledgementsRef.current.set(acknowledgementKey, resolve);
+        });
+        acknowledgementTimeout = window.setTimeout(() => {
+          const resolve = whiteboardAcknowledgementsRef.current.get(acknowledgementKey);
+          if (resolve) {
+            whiteboardAcknowledgementsRef.current.delete(acknowledgementKey);
+            resolve({
+              accepted: false,
+              message: "The interviewer did not acknowledge the drawing.",
+            });
+          }
+        }, WHITEBOARD_ACK_TIMEOUT_MS);
+        await session.room.localParticipant.sendText(
+          JSON.stringify(signedAssessment),
+          { topic: WHITEBOARD_EVALUATION_TOPIC },
+        );
         const ack = await acknowledgement;
+        window.clearTimeout(acknowledgementTimeout);
+        acknowledgementTimeout = undefined;
         if (!ack.accepted) {
           setWhiteboardStatus("error");
           toast.error(ack.message ?? "The whiteboard was rejected. Please try again.");
           return false;
         }
-
         setIsWhiteboardLocked(true);
-        setWhiteboardStatus("received");
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-        setWhiteboardStatus("analyzing");
-        try {
-          const formData = new FormData();
-          formData.set("image", file);
-          formData.set("question", question);
-          formData.set("roomName", connection.roomName);
-          formData.set(
-            "participantIdentity",
-            session.room.localParticipant.identity,
-          );
-          formData.set("questionId", questionId);
-          formData.set("revision", String(revision));
-          formData.set("imageSha256", imageSha256);
-          const response = await fetch("/api/evaluate", {
-            method: "POST",
-            body: formData,
-          });
-          if (!response.ok) {
-            throw new Error(`Whiteboard evaluation failed with ${response.status}`);
-          }
-          const signedAssessment = (await response.json()) as {
-            payload?: unknown;
-            signature?: unknown;
-          };
-          if (
-            typeof signedAssessment.payload !== "string" ||
-            typeof signedAssessment.signature !== "string"
-          ) {
-            throw new Error("Whiteboard evaluation returned an invalid response");
-          }
-          await session.room.localParticipant.sendText(
-            JSON.stringify(signedAssessment),
-            { topic: WHITEBOARD_EVALUATION_TOPIC },
-          );
-        } catch (error) {
-          console.error("Whiteboard analysis unavailable; using spoken walkthrough:", error);
-        }
         setWhiteboardStatus("ready");
         toast.success("Drawing received. Walk through your approach aloud.");
         return true;
@@ -483,10 +534,12 @@ export function InterviewSession({
         toast.error("Could not submit the whiteboard. Please try again.");
         return false;
       } finally {
-        window.clearTimeout(timeout);
+        if (acknowledgementTimeout !== undefined) {
+          window.clearTimeout(acknowledgementTimeout);
+        }
       }
     },
-    [connection.roomName, session.isConnected, session.room, surface],
+    [connection.participantToken, connection.roomName, session.isConnected, session.room, surface],
   );
 
   const handleCodeContentChange = useCallback(

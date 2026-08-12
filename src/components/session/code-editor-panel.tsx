@@ -304,7 +304,7 @@ export function CodeEditorPanel({
           aria-controls={codePanelId}
           aria-selected={activeTab === "code"}
           onClick={() => setActiveTab("code")}
-          className="border-b-2 border-transparent px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:rounded-t-md focus-visible:outline-2 focus-visible:outline-ring aria-selected:border-primary aria-selected:text-foreground"
+          className="cursor-pointer border-b-2 border-transparent px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:rounded-t-md focus-visible:outline-2 focus-visible:outline-ring aria-selected:border-primary aria-selected:text-foreground"
         >
           Code
         </button>
@@ -315,7 +315,7 @@ export function CodeEditorPanel({
           aria-controls={outputPanelId}
           aria-selected={activeTab === "output"}
           onClick={() => setActiveTab("output")}
-          className="border-b-2 border-transparent px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:rounded-t-md focus-visible:outline-2 focus-visible:outline-ring aria-selected:border-primary aria-selected:text-foreground"
+          className="cursor-pointer border-b-2 border-transparent px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:rounded-t-md focus-visible:outline-2 focus-visible:outline-ring aria-selected:border-primary aria-selected:text-foreground"
         >
           Output
         </button>

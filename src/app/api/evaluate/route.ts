@@ -1,9 +1,15 @@
-import { createHmac, createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { NoObjectGeneratedError, Output, generateText, type ModelMessage } from "ai";
 import { z } from "zod";
+import {
+  readWhiteboardUpload,
+  validateWhiteboardObject,
+  verifyParticipantRequest,
+} from "@/lib/whiteboard-submission";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const LOG_PREFIX = "[LLM:whiteboard-evaluation]";
@@ -31,10 +37,16 @@ const SYSTEM_PROMPT =
   "Then assess how well the visible design addresses the question. Do not invent unlabeled " +
   "services, requirements, tradeoffs, scale assumptions or candidate reasoning. Keep every field concise.";
 
-function requiredString(formData: FormData, name: string): string | null {
-  const value = formData.get(name);
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
+const evaluationRequestSchema = z.object({
+  question: z.string().trim().min(1),
+  roomName: z.string(),
+  participantIdentity: z.string(),
+  questionId: z.string(),
+  revision: z.number().int().nonnegative(),
+  imageSha256: z.string(),
+  imageBytes: z.number().int().positive().max(MAX_IMAGE_BYTES),
+  s3Key: z.string(),
+});
 
 export async function POST(request: Request) {
   const apiKey = process.env.OPENROUTER_API_KEY;
@@ -43,44 +55,47 @@ export async function POST(request: Request) {
     return Response.json({ error: "Whiteboard evaluation is not configured" }, { status: 500 });
   }
 
-  let formData: FormData;
+  let input: z.infer<typeof evaluationRequestSchema>;
   try {
-    formData = await request.formData();
+    input = evaluationRequestSchema.parse(await request.json());
   } catch {
-    return Response.json({ error: "Invalid multipart body" }, { status: 400 });
-  }
-  const image = formData.get("image");
-  const question = requiredString(formData, "question");
-  const roomName = requiredString(formData, "roomName");
-  const participantIdentity = requiredString(formData, "participantIdentity");
-  const questionId = requiredString(formData, "questionId");
-  const revisionRaw = requiredString(formData, "revision");
-  const expectedHash = requiredString(formData, "imageSha256");
-  const revision = revisionRaw === null ? Number.NaN : Number(revisionRaw);
-  if (
-    !(image instanceof File) ||
-    image.type !== "image/png" ||
-    image.size <= 0 ||
-    image.size > MAX_IMAGE_BYTES ||
-    !question ||
-    !roomName ||
-    !participantIdentity ||
-    !questionId ||
-    !Number.isInteger(revision) ||
-    revision < 0 ||
-    !expectedHash?.match(/^[a-f0-9]{64}$/)
-  ) {
     return Response.json({ error: "Invalid whiteboard evaluation request" }, { status: 400 });
   }
+  const {
+    question,
+    roomName,
+    participantIdentity,
+    questionId,
+    revision,
+    imageSha256,
+    imageBytes: expectedImageBytes,
+    s3Key,
+  } = input;
+  if (
+    !validateWhiteboardObject({
+      roomName,
+      questionId,
+      imageSha256,
+      imageBytes: expectedImageBytes,
+    }) ||
+    !(await verifyParticipantRequest(request, roomName, participantIdentity))
+  ) {
+    return Response.json({ error: "Whiteboard evaluation is not authorized" }, { status: 403 });
+  }
 
-  const imageBytes = new Uint8Array(await image.arrayBuffer());
+  const imageBytes = await readWhiteboardUpload({
+    roomName,
+    questionId,
+    imageSha256,
+    imageBytes: expectedImageBytes,
+    s3Key,
+  });
+  if (!imageBytes) {
+    return Response.json({ error: "Whiteboard upload could not be verified" }, { status: 409 });
+  }
   const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
   if (!pngSignature.every((byte, index) => imageBytes[index] === byte)) {
     return Response.json({ error: "Invalid PNG image" }, { status: 400 });
-  }
-  const actualHash = createHash("sha256").update(imageBytes).digest("hex");
-  if (actualHash !== expectedHash) {
-    return Response.json({ error: "Whiteboard image hash mismatch" }, { status: 400 });
   }
 
   const messages: ModelMessage[] = [
@@ -94,6 +109,7 @@ export async function POST(request: Request) {
   ];
   const modelName = "openai/gpt-4o";
   const startedAt = Date.now();
+  console.info(`${LOG_PREFIX} started model=${modelName} question_id=${questionId}`);
   try {
     const openrouter = createOpenRouter({ apiKey });
     const result = await generateText({
@@ -108,15 +124,17 @@ export async function POST(request: Request) {
       participantIdentity,
       questionId,
       revision,
-      imageSha256: actualHash,
+      imageSha256,
+      imageBytes: expectedImageBytes,
+      s3Key,
       evaluatedAt: Date.now(),
+      evaluationStatus: "completed",
       ...result.output,
     });
     const signature = createHmac("sha256", signingSecret).update(payload).digest("hex");
     console.info(
       `${LOG_PREFIX} completed model=${modelName} question_id=${questionId} elapsed_ms=${Date.now() - startedAt}`,
     );
-    console.log('Evaluate response', {payload})
     return Response.json({ payload, signature });
   } catch (error) {
     if (NoObjectGeneratedError.isInstance(error)) {
@@ -129,6 +147,19 @@ export async function POST(request: Request) {
         error,
       );
     }
-    return Response.json({ error: "Whiteboard evaluation failed" }, { status: 502 });
+    const payload = JSON.stringify({
+      version: 1,
+      roomName,
+      participantIdentity,
+      questionId,
+      revision,
+      imageSha256,
+      imageBytes: expectedImageBytes,
+      s3Key,
+      evaluatedAt: Date.now(),
+      evaluationStatus: "failed",
+    });
+    const signature = createHmac("sha256", signingSecret).update(payload).digest("hex");
+    return Response.json({ payload, signature });
   }
 }
