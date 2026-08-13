@@ -702,7 +702,7 @@ export function InterviewSession({
               transition={layoutTransition}
               className="interview-stage h-full min-h-0 gap-4"
             >
-              <AnimatePresence initial={false} mode="popLayout">
+              <AnimatePresence initial={false} mode="wait">
                 {surface && (
                   <motion.div
                   key={`${surface.kind}:${surface.key}`}
@@ -719,6 +719,7 @@ export function InterviewSession({
                   >
                     {surface.kind === "code" ? (
                       <CodeEditorPanel
+                        room={session.room}
                         question={surface.question}
                         initialLanguage={surface.language}
                         initialCode={surface.starterCode}
@@ -738,6 +739,7 @@ export function InterviewSession({
                       />
                     ) : (
                       <WhiteboardPanel
+                        room={session.room}
                         question={surface.question}
                         locked={isWhiteboardLocked}
                         status={whiteboardStatus}
