@@ -3,8 +3,16 @@
 import "@excalidraw/excalidraw/index.css";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import dynamic from "next/dynamic";
-import { useRef, useState } from "react";
+import { ParticipantKind, RpcError, type Room } from "livekit-client";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+
+const WHITEBOARD_RPC_METHOD = "workspace.whiteboard";
+const PUBLISH_ON_BEHALF_ATTRIBUTE = "lk.publish_on_behalf";
+
+function normalizeLabel(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
 
 const Excalidraw = dynamic(
   async () => (await import("@excalidraw/excalidraw")).Excalidraw,
@@ -17,6 +25,7 @@ const Excalidraw = dynamic(
 );
 
 export function WhiteboardPanel({
+  room,
   question,
   locked,
   status,
@@ -24,6 +33,7 @@ export function WhiteboardPanel({
   onSubmit,
   onClose,
 }: {
+  room: Room;
   question: string;
   locked: boolean;
   status: "idle" | "uploading" | "received" | "analyzing" | "ready" | "error";
@@ -38,6 +48,72 @@ export function WhiteboardPanel({
     useState<ExcalidrawImperativeAPI | null>(null);
   const sceneVersionRef = useRef<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+
+  useEffect(() => {
+    room.registerRpcMethod(WHITEBOARD_RPC_METHOD, async (invocation) => {
+      const caller = room.remoteParticipants.get(invocation.callerIdentity);
+      if (
+        caller?.kind !== ParticipantKind.AGENT ||
+        caller.attributes[PUBLISH_ON_BEHALF_ATTRIBUTE]
+      ) {
+        throw new RpcError(2001, "Only the session agent may highlight the whiteboard");
+      }
+
+      let request: {
+        action?: string;
+        payload?: Record<string, unknown>;
+      };
+      try {
+        request = JSON.parse(invocation.payload) as {
+          action?: string;
+          payload?: Record<string, unknown>;
+        };
+      } catch {
+        throw new RpcError(2002, "Invalid whiteboard command");
+      }
+
+      const componentLabel = request.payload?.componentLabel;
+      if (
+        request.action !== "highlight_component" ||
+        typeof componentLabel !== "string" ||
+        !componentLabel.trim() ||
+        !excalidrawApi
+      ) {
+        throw new RpcError(2002, "Whiteboard is not ready");
+      }
+
+      const requestedLabel = normalizeLabel(componentLabel);
+      const elements = excalidrawApi.getSceneElements();
+      const textElement = elements.find((element) => {
+        if (element.type !== "text") return false;
+        const visibleLabel = normalizeLabel(element.originalText || element.text);
+        return (
+          visibleLabel === requestedLabel ||
+          visibleLabel.includes(requestedLabel) ||
+          requestedLabel.includes(visibleLabel)
+        );
+      });
+      if (!textElement || textElement.type !== "text") {
+        throw new RpcError(2002, "Whiteboard component label was not found");
+      }
+
+      const selectedIds: Record<string, true> = { [textElement.id]: true };
+      if (textElement.containerId) selectedIds[textElement.containerId] = true;
+      const selectedElements = elements.filter((element) => selectedIds[element.id]);
+      excalidrawApi.updateScene({
+        appState: { selectedElementIds: selectedIds },
+      });
+      excalidrawApi.scrollToContent(selectedElements, {
+        animate: true,
+        fitToContent: true,
+      });
+      return JSON.stringify({ ok: true, componentLabel: textElement.text });
+    });
+
+    return () => {
+      room.unregisterRpcMethod(WHITEBOARD_RPC_METHOD);
+    };
+  }, [excalidrawApi, room]);
 
   async function handleDone() {
     if (!excalidrawApi || locked || isExporting) return;

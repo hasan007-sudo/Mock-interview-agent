@@ -54,6 +54,11 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
+.agent-code-highlight {
+  background: rgb(250 204 21 / 0.22);
+  border-bottom: 1px solid rgb(250 204 21 / 0.8);
+}
+
 .session-header {
   border-bottom: 1px solid rgb(196 181 253 / 0.1);
   background: rgb(13 9 21 / 0.88);

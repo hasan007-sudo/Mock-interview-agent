@@ -1,6 +1,12 @@
 "use client";
 
 import Editor from "@monaco-editor/react";
+import {
+  ParticipantKind,
+  RpcError,
+  type Room,
+} from "livekit-client";
+import type { editor } from "monaco-editor";
 import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -8,6 +14,26 @@ import type { CodeExecutionResult } from "@/lib/code-execution";
 import type { SupportedLanguage } from "@/lib/events";
 
 const MAX_CODE_ANSWER_CHARS = 20_000;
+const CODE_RPC_METHOD = "workspace.code";
+const MAX_CODE_RPC_RESPONSE_BYTES = 14 * 1024;
+const PUBLISH_ON_BEHALF_ATTRIBUTE = "lk.publish_on_behalf";
+
+function serializeCodeRangeResponse(result: {
+  fromLine: number;
+  toLine: number;
+  from: number;
+  to: number;
+  text: string;
+}) {
+  const response = JSON.stringify({
+    ok: true,
+    result: { ...result, truncated: false },
+  });
+  if (new TextEncoder().encode(response).byteLength > MAX_CODE_RPC_RESPONSE_BYTES) {
+    throw new RpcError(2002, "Code range is too large; request fewer lines");
+  }
+  return response;
+}
 
 const LANGUAGE_LABELS: Record<SupportedLanguage, string> = {
   html: "HTML/CSS/JavaScript",
@@ -131,6 +157,7 @@ function ExecutionConsole({
 }
 
 export function CodeEditorPanel({
+  room,
   question,
   initialLanguage,
   initialCode,
@@ -139,6 +166,7 @@ export function CodeEditorPanel({
   onSubmit,
   onClose,
 }: {
+  room: Room;
   question: string;
   initialLanguage: SupportedLanguage;
   initialCode: string;
@@ -160,6 +188,8 @@ export function CodeEditorPanel({
   const outputPanelId = `${tabId}-output-panel`;
   const [language, setLanguage] = useState<SupportedLanguage>(initialLanguage);
   const [code, setCode] = useState(initialCode);
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const decorationIdsRef = useRef<string[]>([]);
   const runAbortControllerRef = useRef<AbortController | null>(null);
   const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
   const previewConsoleTargetRef = useRef<PreviewConsoleTarget | null>(null);
@@ -178,6 +208,117 @@ export function CodeEditorPanel({
     },
     [],
   );
+
+  useEffect(() => {
+    room.registerRpcMethod(CODE_RPC_METHOD, async (invocation) => {
+      const caller = room.remoteParticipants.get(invocation.callerIdentity);
+      if (
+        caller?.kind !== ParticipantKind.AGENT ||
+        caller.attributes[PUBLISH_ON_BEHALF_ATTRIBUTE]
+      ) {
+        throw new RpcError(2001, "Only the session agent may inspect the editor");
+      }
+
+      let request: {
+        action?: string;
+        payload?: Record<string, unknown>;
+      };
+      try {
+        request = JSON.parse(invocation.payload) as {
+          action?: string;
+          payload?: Record<string, unknown>;
+        };
+      } catch {
+        throw new RpcError(2002, "Invalid code command");
+      }
+
+      const mountedEditor = editorRef.current;
+      const model = mountedEditor?.getModel();
+      if (!mountedEditor || !model) {
+        throw new RpcError(2002, "Code editor is not ready");
+      }
+
+      if (request.action === "get_range") {
+        const fromLine = Number(request.payload?.fromLine);
+        const requestedToLine = Number(request.payload?.toLine);
+        if (
+          !Number.isInteger(fromLine) ||
+          !Number.isInteger(requestedToLine) ||
+          fromLine < 1 ||
+          requestedToLine < fromLine ||
+          fromLine > model.getLineCount()
+        ) {
+          throw new RpcError(2002, "Invalid code line range");
+        }
+
+        const toLine = Math.min(requestedToLine, model.getLineCount());
+        const range = {
+          startLineNumber: fromLine,
+          startColumn: 1,
+          endLineNumber: toLine,
+          endColumn: model.getLineMaxColumn(toLine),
+        };
+        return serializeCodeRangeResponse({
+          fromLine,
+          toLine,
+          from: model.getOffsetAt({ lineNumber: fromLine, column: 1 }),
+          to: model.getOffsetAt({
+            lineNumber: toLine,
+            column: model.getLineMaxColumn(toLine),
+          }),
+          text: model.getValueInRange(range),
+        });
+      }
+
+      if (request.action !== "highlight_range") {
+        throw new RpcError(2002, "Unsupported code action");
+      }
+
+      const fromLine = Number(request.payload?.fromLine);
+      const requestedToLine = Number(request.payload?.toLine);
+      if (
+        !Number.isInteger(fromLine) ||
+        !Number.isInteger(requestedToLine) ||
+        fromLine < 1 ||
+        requestedToLine < fromLine ||
+        fromLine > model.getLineCount()
+      ) {
+        throw new RpcError(2002, "Invalid code line range");
+      }
+
+      const toLine = Math.min(requestedToLine, model.getLineCount());
+      const range = {
+        startLineNumber: fromLine,
+        startColumn: 1,
+        endLineNumber: toLine,
+        endColumn: model.getLineMaxColumn(toLine),
+      };
+      decorationIdsRef.current = mountedEditor.deltaDecorations(
+        decorationIdsRef.current,
+        [
+          {
+            range,
+            options: {
+              isWholeLine: true,
+              inlineClassName: "agent-code-highlight",
+            },
+          },
+        ],
+      );
+      mountedEditor.revealRangeInCenter(range);
+      return JSON.stringify({ ok: true });
+    });
+
+    return () => {
+      room.unregisterRpcMethod(CODE_RPC_METHOD);
+      const mountedEditor = editorRef.current;
+      if (mountedEditor) {
+        mountedEditor.deltaDecorations(decorationIdsRef.current, []);
+      }
+      decorationIdsRef.current = [];
+      editorRef.current = null;
+    };
+  }, [room]);
 
   useEffect(() => {
     function handlePreviewMessage(event: MessageEvent) {
@@ -334,6 +475,9 @@ export function CodeEditorPanel({
             theme="vs-dark"
             language={monacoLanguage(language)}
             value={code}
+            onMount={(mountedEditor) => {
+              editorRef.current = mountedEditor;
+            }}
             onChange={(value) => {
               if (readOnly) return;
               const nextCode = value ?? "";
