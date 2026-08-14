@@ -293,6 +293,7 @@ export function CodeEditorPanel({
         endLineNumber: toLine,
         endColumn: model.getLineMaxColumn(toLine),
       };
+      setActiveTab("code");
       decorationIdsRef.current = mountedEditor.deltaDecorations(
         decorationIdsRef.current,
         [
@@ -305,7 +306,10 @@ export function CodeEditorPanel({
           },
         ],
       );
-      mountedEditor.revealRangeInCenter(range);
+      requestAnimationFrame(() => {
+        mountedEditor.layout();
+        mountedEditor.revealRangeInCenter(range);
+      });
       return JSON.stringify({ ok: true });
     });
 
