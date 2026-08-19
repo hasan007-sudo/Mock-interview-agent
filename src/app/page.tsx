@@ -2,9 +2,15 @@
 
 import { ChevronDown, FileText, Loader2, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { CONNECTION_STORAGE_KEY } from "@/lib/connection";
 import type { VasanthOpening } from "@/lib/opening";
+import {
+  DEV_NAME,
+  DEV_INTERVIEW_TRACK,
+  DEV_RESUME_MARKDOWN,
+  DEV_OPENING,
+} from "@/lib/dev-fixtures";
 
 const TRACK_OPTIONS = [
   "frontend React",
@@ -29,6 +35,15 @@ export default function Home() {
   const [isParsing, setIsParsing] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /* ---- Dev debug: pre-populate session data from fixtures ---- */
+  useEffect(() => {
+    if (!SHOW_DEV_DEBUG) return;
+    setName(DEV_NAME);
+    setInterviewTrack(DEV_INTERVIEW_TRACK);
+    setResumeMarkdown(DEV_RESUME_MARKDOWN);
+    setParsedOpening(DEV_OPENING);
+  }, []);
 
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
