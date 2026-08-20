@@ -1,5 +1,12 @@
 import { NoObjectGeneratedError } from "ai";
-import { ResumeInputError, parseResume } from "@/lib/resume-parser";
+import { z } from "zod";
+import {
+  ResumeClaimParseRequestSchema,
+  ResumeInputError,
+  parseResume,
+  parseResumeClaims,
+} from "@/lib/resume-parser";
+import { ResumeDocumentError } from "@/lib/resume-document";
 
 export const dynamic = "force-dynamic";
 
@@ -7,6 +14,14 @@ const DEFAULT_INTERVIEW_TRACK = "frontend React";
 const MAX_RESUME_BYTES = 10 * 1024 * 1024;
 
 export async function POST(request: Request) {
+  if (request.headers.get("content-type")?.includes("application/json")) {
+    return parseResumeClaimsRequest(request);
+  }
+
+  return parseMockResumeRequest(request);
+}
+
+async function parseMockResumeRequest(request: Request) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     return Response.json(
@@ -61,6 +76,45 @@ export async function POST(request: Request) {
     }
     return Response.json(
       { error: "Failed to generate interview plan" },
+      { status: 502 },
+    );
+  }
+}
+
+async function parseResumeClaimsRequest(request: Request) {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    return Response.json(
+      { error: "OPENROUTER_API_KEY is not configured" },
+      { status: 500 },
+    );
+  }
+
+  let parsed: z.infer<typeof ResumeClaimParseRequestSchema>;
+  try {
+    parsed = ResumeClaimParseRequestSchema.parse(await request.json());
+  } catch (error) {
+    const message = error instanceof z.ZodError
+      ? z.prettifyError(error)
+      : "Invalid JSON body";
+    return Response.json({ error: message }, { status: 400 });
+  }
+
+  try {
+    const document = await parseResumeClaims(parsed.document, {
+      apiKey,
+      model:
+        process.env.RESUME_MODEL ??
+        process.env.OPENROUTER_MODEL ??
+        "google/gemini-2.5-flash",
+    });
+    return Response.json({ interview: parsed.interview, document });
+  } catch (error) {
+    if (error instanceof ResumeDocumentError) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+    return Response.json(
+      { error: "Failed to classify resume claims" },
       { status: 502 },
     );
   }

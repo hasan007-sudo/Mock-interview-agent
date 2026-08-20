@@ -30,6 +30,20 @@ export async function POST(request: Request) {
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
+  if (
+    body.interview &&
+    typeof body.interview === "object" &&
+    "type" in body.interview &&
+    body.interview.type === "resume_mastery"
+  ) {
+    return Response.json(
+      {
+        error:
+          "Resume Mastery sessions require multipart POST /api/resume-sessions",
+      },
+      { status: 400 },
+    );
+  }
   if (!name) {
     return Response.json({ error: "name is required" }, { status: 400 });
   }
