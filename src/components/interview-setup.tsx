@@ -2,7 +2,7 @@
 
 import { ChevronDown, FileText, Loader2, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   BaseConnectionDetailsSchema,
@@ -14,7 +14,9 @@ import {
   DEV_INTERVIEW_TRACK,
   DEV_NAME,
   DEV_OPENING,
+  DEV_RESUME_DOCUMENT,
   DEV_RESUME_MARKDOWN,
+  loadDevResumeFile,
 } from "@/lib/dev-fixtures";
 import {
   type InterviewRequest,
@@ -51,7 +53,9 @@ export function InterviewSetup() {
   );
   const [resumeRound, setResumeRound] = useState<ResumeRound | "">("");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
-  const [resumeDocument, setResumeDocument] = useState<ResumeDocument | null>(null);
+  const [resumeDocument, setResumeDocument] = useState<ResumeDocument | null>(
+    SHOW_DEV_DEBUG ? DEV_RESUME_DOCUMENT : null,
+  );
   const [resumeMarkdown, setResumeMarkdown] = useState<string | null>(
     SHOW_DEV_DEBUG ? DEV_RESUME_MARKDOWN : null,
   );
@@ -61,6 +65,21 @@ export function InterviewSetup() {
   const [isParsing, setIsParsing] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!SHOW_DEV_DEBUG) return;
+    let cancelled = false;
+    loadDevResumeFile()
+      .then((file) => {
+        if (!cancelled) setResumeFile(file);
+      })
+      .catch((caught) => {
+        console.error("[IO:dev-resume] failed", caught);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const isResumeMastery = mode === "resume_mastery";
   const isParsed = isResumeMastery ? resumeDocument !== null : parsedOpening !== null;
@@ -83,6 +102,14 @@ export function InterviewSetup() {
     setResumeRound("");
     clearFile();
     setError(null);
+    if (SHOW_DEV_DEBUG) {
+      setResumeMarkdown(DEV_RESUME_MARKDOWN);
+      setParsedOpening(DEV_OPENING);
+      setResumeDocument(DEV_RESUME_DOCUMENT);
+      loadDevResumeFile()
+        .then(setResumeFile)
+        .catch((caught) => console.error("[IO:dev-resume] failed", caught));
+    }
   }
 
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -281,6 +308,13 @@ export function InterviewSetup() {
 
       {isResumeMastery && resumeDocument && <p className="mt-4 text-sm text-muted-foreground">Resume ready. The PDF will remain visible during this round.</p>}
       {SHOW_DEV_DEBUG && !isResumeMastery && parsedOpening && <MockInterviewPreview opening={parsedOpening} markdown={resumeMarkdown} onReset={clearFile} />}
+      {SHOW_DEV_DEBUG && isResumeMastery && resumeDocument && (
+        <ResumeMasteryPreview
+          document={resumeDocument}
+          round={resumeRound}
+          onReset={clearFile}
+        />
+      )}
       <p className="mt-4 text-xs text-muted-foreground">Your microphone and camera will be enabled when the session starts.</p>
     </div>
   );
@@ -296,6 +330,75 @@ function MockInterviewPreview({ opening, markdown, onReset }: { opening: Vasanth
         <div className="rounded-lg bg-secondary/30 p-3"><span className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">Transition</span><p className="text-xs text-muted-foreground">{opening.transition_to_technical}</p></div>
       </div>
       {markdown && <details className="group rounded-lg bg-secondary/30 p-3"><summary className="cursor-pointer list-none text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground">Parsed resume</summary><pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">{markdown}</pre></details>}
+      <Button type="button" variant="link" size="xs" onClick={onReset}>Parse a different resume</Button>
+    </div>
+  );
+}
+
+function ResumeMasteryPreview({
+  document,
+  round,
+  onReset,
+}: {
+  document: ResumeDocument;
+  round: ResumeRound | "";
+  onReset: () => void;
+}) {
+  const sectionCounts = new Map<string, number>();
+  const kindCounts = new Map<string, number>();
+  for (const claim of document.claims) {
+    sectionCounts.set(claim.section, (sectionCounts.get(claim.section) ?? 0) + 1);
+    kindCounts.set(claim.kind, (kindCounts.get(claim.kind) ?? 0) + 1);
+  }
+  return (
+    <div className="mt-6 space-y-4 rounded-xl border border-border bg-background/50 p-4 sm:p-5">
+      <h2 className="text-sm font-medium text-secondary-foreground">Resume mastery preview</h2>
+      <div className="space-y-3">
+        <div className="rounded-lg bg-primary/5 p-3">
+          <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">Round</span>
+          <p className="text-sm text-foreground">
+            {round ? RESUME_ROUNDS.find((entry) => entry.value === round)?.label ?? round : "No round selected"}
+          </p>
+        </div>
+        <div className="rounded-lg bg-secondary/30 p-3">
+          <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">Claims</span>
+          <p className="text-sm text-foreground">{document.claim_count} classified claims across {sectionCounts.size} sections</p>
+        </div>
+        <div className="rounded-lg bg-secondary/30 p-3">
+          <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">Sections</span>
+          <ul className="mt-1 space-y-1">
+            {[...sectionCounts.entries()].map(([section, count]) => (
+              <li key={section} className="flex items-baseline justify-between gap-3 text-sm text-foreground">
+                <span>{section}</span>
+                <span className="text-xs text-muted-foreground">{count}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="rounded-lg bg-secondary/30 p-3">
+          <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">Claim kinds</span>
+          <ul className="mt-1 space-y-1">
+            {[...kindCounts.entries()].map(([kind, count]) => (
+              <li key={kind} className="flex items-baseline justify-between gap-3 text-sm text-foreground">
+                <span>{kind}</span>
+                <span className="text-xs text-muted-foreground">{count}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <details className="group rounded-lg bg-secondary/30 p-3">
+          <summary className="cursor-pointer list-none text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground">Sample claims</summary>
+          <ul className="mt-2 space-y-2">
+            {document.claims.slice(0, 3).map((claim) => (
+              <li key={claim.id} className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">{claim.section}</span>
+                {" — "}
+                {claim.text}
+              </li>
+            ))}
+          </ul>
+        </details>
+      </div>
       <Button type="button" variant="link" size="xs" onClick={onReset}>Parse a different resume</Button>
     </div>
   );

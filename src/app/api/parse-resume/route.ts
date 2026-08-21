@@ -1,5 +1,6 @@
 import { NoObjectGeneratedError } from "ai";
 import { z } from "zod";
+import { DEV_RESUME_DOCUMENT } from "@/lib/dev-resume-document";
 import {
   ResumeClaimParseRequestSchema,
   ResumeInputError,
@@ -82,14 +83,6 @@ async function parseMockResumeRequest(request: Request) {
 }
 
 async function parseResumeClaimsRequest(request: Request) {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
-    return Response.json(
-      { error: "OPENROUTER_API_KEY is not configured" },
-      { status: 500 },
-    );
-  }
-
   let parsed: z.infer<typeof ResumeClaimParseRequestSchema>;
   try {
     parsed = ResumeClaimParseRequestSchema.parse(await request.json());
@@ -98,6 +91,21 @@ async function parseResumeClaimsRequest(request: Request) {
       ? z.prettifyError(error)
       : "Invalid JSON body";
     return Response.json({ error: message }, { status: 400 });
+  }
+
+  if (process.env.NEXT_PUBLIC_DEV_DEBUG === "true") {
+    return Response.json({
+      interview: parsed.interview,
+      document: DEV_RESUME_DOCUMENT,
+    });
+  }
+
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    return Response.json(
+      { error: "OPENROUTER_API_KEY is not configured" },
+      { status: 500 },
+    );
   }
 
   try {

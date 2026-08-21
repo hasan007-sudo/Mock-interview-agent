@@ -213,3 +213,25 @@ export const DEV_OPENING: VasanthOpening = {
   transition_to_technical:
     "Once the candidate's primary interest in frontend React is confirmed and their relevant experience or motivation for the shift is understood, transition to technical questions.",
 };
+
+/** Public URL of the candidate's resume PDF (used to populate the dev stub). */
+export const DEV_RESUME_PDF_URL =
+  "https://pre-screen-sessions.s3.ap-south-1.amazonaws.com/agents/mock-interview-agent/sessions/Resume%20Aswathy%20B.pdf";
+
+export { DEV_RESUME_DOCUMENT } from "@/lib/dev-resume-document";
+
+/** Fetches the dev PDF and wraps it as a `File` so dev mode can start a session. */
+let cachedDevFile: Promise<File> | null = null;
+export function loadDevResumeFile(): Promise<File> {
+  if (!cachedDevFile) {
+    cachedDevFile = (async () => {
+      const response = await fetch(DEV_RESUME_PDF_URL);
+      if (!response.ok) {
+        throw new Error(`Failed to load dev resume: ${response.status}`);
+      }
+      const blob = await response.blob();
+      return new File([blob], "Resume Aswathy B.pdf", { type: "application/pdf" });
+    })();
+  }
+  return cachedDevFile;
+}

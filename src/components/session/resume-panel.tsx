@@ -1,7 +1,15 @@
 "use client";
 import { useSessionContext } from "@livekit/components-react";
 import { RpcError } from "livekit-client";
-import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import {
   Highlight,
   PdfHighlighter,
@@ -12,6 +20,7 @@ import {
 import "react-pdf-highlighter/dist/style.css";
 import { z } from "zod";
 import { cn } from "@/lib/utils";
+import { PDFJS_WORKER_SRC } from "@/lib/pdf-extraction";
 import {
   ResumeDocumentSchema,
   type PdfRectangle,
@@ -41,7 +50,7 @@ type DocumentState =
   | { status: "document_mismatch" | "error"; key: string };
 type ViewerState = { status: "loading" | "ready" | "error"; key: string };
 type RuntimeState = {
-  agentIdentity: string;
+  agentIdentity: string | null;
   documentKey: string;
   viewerKey: string;
   pdfSha256: string;
@@ -63,11 +72,11 @@ function documentCounts(document?: ResumeDocument) {
     claim_count: document?.claim_count ?? 0,
   };
 }
-function normalizedRectangle({ page, x1, y1, x2, y2 }: PdfRectangle): Scaled {
+export function normalizedRectangle({ page, x1, y1, x2, y2 }: PdfRectangle): Scaled {
   return { pageNumber: page, x1, y1, x2, y2, width: 1, height: 1 };
 }
 
-function buildClaimHighlight(
+export function buildClaimHighlight(
   document: ResumeDocument,
   claimId: string,
 ): IHighlight | null {
@@ -105,6 +114,35 @@ function buildClaimHighlight(
     comment: { text: "", emoji: "" },
   };
 }
+
+export function scrollToHighlightInViewer(
+  highlight: IHighlight,
+  scrollToFn?: ((h: IHighlight) => void) | null,
+) {
+  if (scrollToFn) {
+    try {
+      scrollToFn(highlight);
+      return;
+    } catch {
+      // Fall through to container scroll if pdfjs internal scroll throws
+    }
+  }
+  const pageNumber = highlight.position.pageNumber;
+  const pageEl = (document.querySelector(`[data-page-number="${pageNumber}"]`) ||
+    document.querySelectorAll(".page")?.[pageNumber - 1]) as HTMLElement | null;
+  const container = (document.querySelector(".PdfHighlighter") ||
+    pageEl?.closest(".PdfHighlighter") ||
+    document.querySelector(".pdfViewer")?.parentElement) as HTMLElement | null;
+
+  if (container && pageEl) {
+    const highlightTopInPage =
+      highlight.position.boundingRect.y1 * pageEl.clientHeight;
+    const targetScrollTop = pageEl.offsetTop + highlightTopInPage - 40;
+    container.scrollTo({ top: Math.max(0, targetScrollTop), behavior: "smooth" });
+  } else if (pageEl) {
+    pageEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
 function blockExternalPdfLink(event: MouseEvent<HTMLDivElement>) {
   const target = event.target;
   if (!(target instanceof Element)) return;
@@ -126,8 +164,16 @@ function PanelMessage({
     </div>
   );
 }
+const EMPTY_HIGHLIGHTS: IHighlight[] = [];
+const disableAreaSelection = () => false;
+const noopScrollChange = () => undefined;
+const noopSelectionFinished = () => null;
+
 export type ResumePanelProps = {
-  pdfUrl: string; documentUrl: string; pdfSha256: string; agentIdentity: string;
+  pdfUrl: string;
+  documentUrl: string;
+  pdfSha256: string;
+  agentIdentity: string | null;
   className?: string;
 };
 export function ResumePanel({
@@ -151,12 +197,55 @@ export function ResumePanel({
   });
   const [activeHighlight, setActiveHighlight] =
     useState<IHighlight | null>(null);
+  const highlights = useMemo(
+    () => (activeHighlight ? [activeHighlight] : EMPTY_HIGHLIGHTS),
+    [activeHighlight],
+  );
   const scrollToHighlightRef = useRef<((highlight: IHighlight) => void) | null>(
     null,
   );
   const runtimeRef = useRef<RuntimeState | null>(null);
   const pdfLoadStartedAtRef = useRef(0);
   const pdfLoadLoggedKeyRef = useRef<string | null>(null);
+
+  const handleViewerReady = useCallback(() => {
+    setViewerState({ status: "ready", key: viewerKey });
+    if (pdfLoadLoggedKeyRef.current !== viewerKey) {
+      pdfLoadLoggedKeyRef.current = viewerKey;
+      console.info(
+        `[EXT-API:resume-pdf] status=completed elapsed_ms=${Math.round(performance.now() - pdfLoadStartedAtRef.current)}`,
+      );
+    }
+  }, [viewerKey]);
+
+  const handleScrollRef = useCallback(
+    (scrollTo: (highlight: IHighlight) => void) => {
+      scrollToHighlightRef.current = scrollTo;
+      handleViewerReady();
+    },
+    [handleViewerReady],
+  );
+
+  const highlightTransform = useCallback<
+    React.ComponentProps<typeof PdfHighlighter<IHighlight>>["highlightTransform"]
+  >(
+    (
+      highlight,
+      _index,
+      _setTip,
+      _hideTip,
+      _viewportToScaled,
+      _screenshot,
+      isScrolledTo,
+    ) => (
+      <Highlight
+        position={highlight.position}
+        comment={highlight.comment}
+        isScrolledTo={isScrolledTo}
+      />
+    ),
+    [],
+  );
   useEffect(() => {
     runtimeRef.current = {
       agentIdentity,
@@ -226,16 +315,13 @@ export function ResumePanel({
   }, [documentKey, documentUrl, pdfSha256, viewerKey]);
 
   useEffect(() => {
-    if (documentState.status !== "ready" || documentState.key !== documentKey) {
-      return;
-    }
     pdfLoadStartedAtRef.current = performance.now();
     console.info("[EXT-API:resume-pdf] status=started");
-  }, [documentKey, documentState]);
+  }, [viewerKey]);
   useEffect(() => {
     localParticipant.registerRpcMethod(RESUME_RPC_METHOD, async (invocation) => {
       const runtime = runtimeRef.current;
-      if (!runtime || invocation.callerIdentity !== runtime.agentIdentity) {
+      if (!runtime || (runtime.agentIdentity && invocation.callerIdentity !== runtime.agentIdentity)) {
         throw new RpcError(2001, "Only the session agent may inspect the resume");
       }
       let payload: unknown;
@@ -262,9 +348,9 @@ export function ResumePanel({
           requestedHashMatches &&
           matchingDocument &&
           runtime.viewerState.status === "ready" &&
-          runtime.viewerState.key === runtime.viewerKey &&
-          scrollToHighlightRef.current
+          runtime.viewerState.key === runtime.viewerKey
         ) {
+          console.info("[EXT-API:resume-rpc] action=get_status status=ready");
           return serializeResponse({
             status: "ready",
             ...documentCounts(matchingDocument),
@@ -274,6 +360,9 @@ export function ResumePanel({
           !requestedHashMatches ||
           state.status === "document_mismatch" ||
           state.status === "error";
+        console.info(
+          `[EXT-API:resume-rpc] action=get_status status=${isMismatch ? "document_mismatch" : "loading"} matching_doc=${Boolean(matchingDocument)} viewer_status=${runtime.viewerState.status}`,
+        );
         return serializeResponse({
           status: isMismatch ? "document_mismatch" : "loading",
           ...documentCounts(matchingDocument),
@@ -281,22 +370,26 @@ export function ResumePanel({
       }
 
       if (!requestedHashMatches) {
+        console.warn("[EXT-API:resume-rpc] action=highlight_claim status=document_mismatch");
         return serializeResponse({ status: "document_mismatch" });
       }
       if (!matchingDocument) {
+        const mismatch =
+          state.status === "document_mismatch" || state.status === "error";
+        console.warn(
+          `[EXT-API:resume-rpc] action=highlight_claim status=${mismatch ? "document_mismatch" : "viewer_unavailable"}`,
+        );
         return serializeResponse({
-          status:
-            state.status === "document_mismatch" || state.status === "error"
-              ? "document_mismatch"
-              : "viewer_unavailable",
+          status: mismatch ? "document_mismatch" : "viewer_unavailable",
         });
       }
-      const scrollToHighlight = scrollToHighlightRef.current;
       if (
         runtime.viewerState.status !== "ready" ||
-        runtime.viewerState.key !== runtime.viewerKey ||
-        !scrollToHighlight
+        runtime.viewerState.key !== runtime.viewerKey
       ) {
+        console.warn(
+          `[EXT-API:resume-rpc] action=highlight_claim status=viewer_unavailable viewer_status=${runtime.viewerState.status}`,
+        );
         return serializeResponse({ status: "viewer_unavailable" });
       }
       const highlight = buildClaimHighlight(
@@ -304,13 +397,21 @@ export function ResumePanel({
         parsed.data.payload.claim_id,
       );
       if (!highlight) {
+        console.warn(
+          `[EXT-API:resume-rpc] action=highlight_claim status=not_found claim_id=${parsed.data.payload.claim_id}`,
+        );
         return serializeResponse({
           status: "not_found",
           claim_id: parsed.data.payload.claim_id,
         });
       }
       setActiveHighlight(highlight);
-      requestAnimationFrame(() => scrollToHighlight(highlight));
+      requestAnimationFrame(() => {
+        scrollToHighlightInViewer(highlight, scrollToHighlightRef.current);
+      });
+      console.info(
+        `[EXT-API:resume-rpc] action=highlight_claim status=highlighted claim_id=${highlight.id} page=${highlight.position.pageNumber}`,
+      );
       return serializeResponse({
         status: "highlighted",
         claim_id: highlight.id,
@@ -322,10 +423,6 @@ export function ResumePanel({
       localParticipant.unregisterRpcMethod(RESUME_RPC_METHOD);
     };
   }, [localParticipant]);
-  const matchingDocument =
-    documentState.status === "ready" && documentState.key === documentKey
-      ? documentState.document
-      : null;
   const hasDocumentError =
     documentState.key === documentKey &&
     (documentState.status === "error" ||
@@ -341,8 +438,6 @@ export function ResumePanel({
     >
       {hasDocumentError ? (
         <PanelMessage error>The resume document is unavailable.</PanelMessage>
-      ) : !matchingDocument ? (
-        <PanelMessage>Loading resume…</PanelMessage>
       ) : (
         <div
           className="relative min-h-0 flex-1 overflow-hidden bg-neutral-900"
@@ -353,6 +448,7 @@ export function ResumePanel({
           <PdfLoader
             key={viewerKey}
             url={pdfUrl}
+            workerSrc={PDFJS_WORKER_SRC}
             beforeLoad={<PanelMessage>Loading resume…</PanelMessage>}
             errorMessage={<PanelMessage error>The resume PDF is unavailable.</PanelMessage>}
             onError={(error) => {
@@ -365,35 +461,50 @@ export function ResumePanel({
             }}
           >
             {(pdfDocument) => (
-              <PdfHighlighter
+              <PdfViewerInner
                 pdfDocument={pdfDocument}
-                pdfScaleValue="page-width"
-                highlights={activeHighlight ? [activeHighlight] : []}
-                enableAreaSelection={() => false}
-                onScrollChange={() => undefined}
-                onSelectionFinished={() => null}
-                scrollRef={(scrollTo) => {
-                  scrollToHighlightRef.current = scrollTo;
-                  setViewerState({ status: "ready", key: viewerKey });
-                  if (pdfLoadLoggedKeyRef.current !== viewerKey) {
-                    pdfLoadLoggedKeyRef.current = viewerKey;
-                    console.info(
-                      `[EXT-API:resume-pdf] status=completed elapsed_ms=${Math.round(performance.now() - pdfLoadStartedAtRef.current)}`,
-                    );
-                  }
-                }}
-                highlightTransform={(highlight, _index, _setTip, _hideTip, _viewportToScaled, _screenshot, isScrolledTo) => (
-                  <Highlight
-                    position={highlight.position}
-                    comment={highlight.comment}
-                    isScrolledTo={isScrolledTo}
-                  />
-                )}
+                highlights={highlights}
+                scrollRef={handleScrollRef}
+                highlightTransform={highlightTransform}
+                onViewerReady={handleViewerReady}
               />
             )}
           </PdfLoader>
         </div>
       )}
     </div>
+  );
+}
+
+function PdfViewerInner({
+  pdfDocument,
+  highlights,
+  scrollRef,
+  highlightTransform,
+  onViewerReady,
+}: {
+  pdfDocument: import("pdfjs-dist").PDFDocumentProxy;
+  highlights: IHighlight[];
+  scrollRef: (scrollTo: (highlight: IHighlight) => void) => void;
+  highlightTransform: React.ComponentProps<
+    typeof PdfHighlighter<IHighlight>
+  >["highlightTransform"];
+  onViewerReady: () => void;
+}) {
+  useEffect(() => {
+    onViewerReady();
+  }, [onViewerReady]);
+
+  return (
+    <PdfHighlighter
+      pdfDocument={pdfDocument}
+      pdfScaleValue="page-width"
+      highlights={highlights}
+      enableAreaSelection={disableAreaSelection}
+      onScrollChange={noopScrollChange}
+      onSelectionFinished={noopSelectionFinished}
+      scrollRef={scrollRef}
+      highlightTransform={highlightTransform}
+    />
   );
 }

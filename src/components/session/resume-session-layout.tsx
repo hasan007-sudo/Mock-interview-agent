@@ -27,24 +27,15 @@ export function ResumeSessionLayout({
   return (
     <div className="dark h-dvh overflow-x-auto overflow-y-hidden bg-background text-foreground">
       <div className="flex h-full min-w-[56rem]">
-        <aside className="h-full w-[clamp(22rem,38vw,40rem)] min-w-[22rem] shrink-0 border-r border-border p-3 sm:p-4">
-          {agentIdentity ? (
-            <ResumePanel
-              pdfUrl={connection.resume.pdfUrl}
-              documentUrl={connection.resume.documentUrl}
-              pdfSha256={connection.resume.pdfSha256}
-              agentIdentity={agentIdentity}
-            />
-          ) : (
-            <div
-              className="flex size-full items-center justify-center rounded-xl bg-card p-6 text-center text-sm text-muted-foreground shadow-[var(--shadow-border)]"
-              role="status"
-            >
-              Loading resume…
-            </div>
-          )}
+        <aside className="h-full w-1/2 min-w-[22rem] shrink-0 border-r border-border p-3 sm:p-4">
+          <ResumePanel
+            pdfUrl={connection.resume.pdfUrl}
+            documentUrl={connection.resume.documentUrl}
+            pdfSha256={connection.resume.pdfSha256}
+            agentIdentity={agentIdentity}
+          />
         </aside>
-        <div className="h-full min-w-[34rem] flex-1">{children}</div>
+        <div className="h-full w-1/2 min-w-[22rem] flex-1">{children}</div>
       </div>
     </div>
   );

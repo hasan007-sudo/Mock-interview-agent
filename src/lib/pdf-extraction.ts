@@ -14,10 +14,10 @@ import {
   unicodeCharacterCount,
 } from "@/lib/source-documents";
 
-export const PDFJS_WORKER_SRC = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
-  import.meta.url,
-).toString();
+export const PDFJS_WORKER_SRC =
+  typeof window !== "undefined"
+    ? "/pdf.worker.min.mjs"
+    : "https://unpkg.com/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs";
 
 type PositionedText = {
   sourceIndex: number;
@@ -59,8 +59,12 @@ export async function extractResumeDocument(
   }
   const pdfSha256 = await sha256Hex(pdfBytes);
   const pdfjs = await import("pdfjs-dist");
-  pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_SRC;
-  const loadingTask = pdfjs.getDocument({ data: pdfBytes });
+  if (typeof window !== "undefined") {
+    pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_SRC;
+  }
+  const loadingTask = pdfjs.getDocument({
+    data: pdfBytes,
+  });
 
   try {
     const pdf = await loadingTask.promise;
