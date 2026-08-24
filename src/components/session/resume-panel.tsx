@@ -55,7 +55,6 @@ type RuntimeState = {
   viewerKey: string;
   pdfSha256: string;
   documentState: DocumentState;
-  viewerState: ViewerState;
 };
 
 function serializeResponse(response: Record<string, unknown>) {
@@ -191,7 +190,7 @@ export function ResumePanel({
     status: "loading",
     key: documentKey,
   });
-  const [viewerState, setViewerState] = useState<ViewerState>({
+  const viewerStateRef = useRef<ViewerState>({
     status: "loading",
     key: viewerKey,
   });
@@ -209,7 +208,12 @@ export function ResumePanel({
   const pdfLoadLoggedKeyRef = useRef<string | null>(null);
 
   const handleViewerReady = useCallback(() => {
-    setViewerState({ status: "ready", key: viewerKey });
+    if (
+      viewerStateRef.current.status !== "ready" ||
+      viewerStateRef.current.key !== viewerKey
+    ) {
+      viewerStateRef.current = { status: "ready", key: viewerKey };
+    }
     if (pdfLoadLoggedKeyRef.current !== viewerKey) {
       pdfLoadLoggedKeyRef.current = viewerKey;
       console.info(
@@ -221,9 +225,8 @@ export function ResumePanel({
   const handleScrollRef = useCallback(
     (scrollTo: (highlight: IHighlight) => void) => {
       scrollToHighlightRef.current = scrollTo;
-      handleViewerReady();
     },
-    [handleViewerReady],
+    [],
   );
 
   const highlightTransform = useCallback<
@@ -253,7 +256,6 @@ export function ResumePanel({
       viewerKey,
       pdfSha256,
       documentState,
-      viewerState,
     };
   }, [
     agentIdentity,
@@ -261,7 +263,6 @@ export function ResumePanel({
     documentState,
     pdfSha256,
     viewerKey,
-    viewerState,
   ]);
   useEffect(() => {
     const abortController = new AbortController();
@@ -315,12 +316,14 @@ export function ResumePanel({
   }, [documentKey, documentUrl, pdfSha256, viewerKey]);
 
   useEffect(() => {
+    viewerStateRef.current = { status: "loading", key: viewerKey };
     pdfLoadStartedAtRef.current = performance.now();
     console.info("[EXT-API:resume-pdf] status=started");
   }, [viewerKey]);
   useEffect(() => {
     localParticipant.registerRpcMethod(RESUME_RPC_METHOD, async (invocation) => {
       const runtime = runtimeRef.current;
+      const viewerState = viewerStateRef.current;
       if (!runtime || (runtime.agentIdentity && invocation.callerIdentity !== runtime.agentIdentity)) {
         throw new RpcError(2001, "Only the session agent may inspect the resume");
       }
@@ -347,8 +350,8 @@ export function ResumePanel({
         if (
           requestedHashMatches &&
           matchingDocument &&
-          runtime.viewerState.status === "ready" &&
-          runtime.viewerState.key === runtime.viewerKey
+          viewerState.status === "ready" &&
+          viewerState.key === runtime.viewerKey
         ) {
           console.info("[EXT-API:resume-rpc] action=get_status status=ready");
           return serializeResponse({
@@ -361,7 +364,7 @@ export function ResumePanel({
           state.status === "document_mismatch" ||
           state.status === "error";
         console.info(
-          `[EXT-API:resume-rpc] action=get_status status=${isMismatch ? "document_mismatch" : "loading"} matching_doc=${Boolean(matchingDocument)} viewer_status=${runtime.viewerState.status}`,
+          `[EXT-API:resume-rpc] action=get_status status=${isMismatch ? "document_mismatch" : "loading"} matching_doc=${Boolean(matchingDocument)} viewer_status=${viewerState.status}`,
         );
         return serializeResponse({
           status: isMismatch ? "document_mismatch" : "loading",
@@ -384,11 +387,11 @@ export function ResumePanel({
         });
       }
       if (
-        runtime.viewerState.status !== "ready" ||
-        runtime.viewerState.key !== runtime.viewerKey
+        viewerState.status !== "ready" ||
+        viewerState.key !== runtime.viewerKey
       ) {
         console.warn(
-          `[EXT-API:resume-rpc] action=highlight_claim status=viewer_unavailable viewer_status=${runtime.viewerState.status}`,
+          `[EXT-API:resume-rpc] action=highlight_claim status=viewer_unavailable viewer_status=${viewerState.status}`,
         );
         return serializeResponse({ status: "viewer_unavailable" });
       }
@@ -454,7 +457,7 @@ export function ResumePanel({
             onError={(error) => {
               const errorType =
                 error instanceof Error ? error.name : "UnknownError";
-              setViewerState({ status: "error", key: viewerKey });
+              viewerStateRef.current = { status: "error", key: viewerKey };
               console.error(
                 `[EXT-API:resume-pdf] status=failed error_type=${errorType} elapsed_ms=${Math.round(performance.now() - pdfLoadStartedAtRef.current)}`,
               );

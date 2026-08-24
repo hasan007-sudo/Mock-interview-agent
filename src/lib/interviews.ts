@@ -14,7 +14,9 @@ export const ResumeRoundSchema = z.enum(["round_1", "round_2", "round_3"]);
 
 export const ResumeMasteryConfigSchema = z
   .object({
-    max_follow_ups: z.number().int().min(0).max(3).default(3),
+    highlighted_sections_per_session: z.number().int().min(1).max(200),
+    main_questions_per_section: z.number().int().min(1).max(4),
+    max_follow_ups_per_main: z.number().int().min(0).max(3),
   })
   .strict();
 
