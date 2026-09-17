@@ -22,6 +22,7 @@ import {
   surfaceFromQuestion,
   type WhiteboardStatus,
 } from "@/components/session/session-layout";
+import { PipecatInterviewSession } from "@/components/session/pipecat-interview-session";
 import { useRoomEventLogger } from "@/hooks/use-room-event-logger";
 import { CONNECTION_STORAGE_KEY, type ConnectionDetails } from "@/lib/connection";
 import type { AgentDataEvent, SupportedLanguage } from "@/lib/events";
@@ -58,12 +59,23 @@ export function InterviewSession({
 }: {
   connection: ConnectionDetails;
 }) {
+  if (connection.transport === "smallwebrtc" || !connection.participantToken) {
+    return <PipecatInterviewSession connection={connection} />;
+  }
+  return <LiveKitInterviewSession connection={connection} />;
+}
+
+function LiveKitInterviewSession({
+  connection,
+}: {
+  connection: ConnectionDetails;
+}) {
   const router = useRouter();
   const tokenSource = useMemo(
     () =>
       TokenSource.literal({
         serverUrl: connection.serverUrl,
-        participantToken: connection.participantToken,
+        participantToken: connection.participantToken ?? "",
       }),
     [connection.serverUrl, connection.participantToken],
   );

@@ -1,11 +1,13 @@
 "use client";
 
 import Editor from "@monaco-editor/react";
+import { PipecatClient, RTVIEvent } from "@pipecat-ai/client-js";
 import {
   ParticipantKind,
   RpcError,
   type Room,
 } from "livekit-client";
+import { sendWorkspaceError, sendWorkspaceResult } from "@/lib/pipecat";
 import type { editor } from "monaco-editor";
 import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -158,6 +160,7 @@ function ExecutionConsole({
 
 export function CodeEditorPanel({
   room,
+  pipecatClient,
   question,
   initialLanguage,
   initialCode,
@@ -166,12 +169,13 @@ export function CodeEditorPanel({
   onSubmit,
   onClose,
 }: {
-  room: Room;
+  room?: Room;
+  pipecatClient?: PipecatClient;
   question: string;
   initialLanguage: SupportedLanguage;
   initialCode: string;
   readOnly: boolean;
-  onContentChange: (answer: {
+  onContentChange?: (answer: {
     code: string;
     language: SupportedLanguage;
   }) => void;
@@ -210,6 +214,7 @@ export function CodeEditorPanel({
   );
 
   useEffect(() => {
+    if (!room) return;
     room.registerRpcMethod(CODE_RPC_METHOD, async (invocation) => {
       const caller = room.remoteParticipants.get(invocation.callerIdentity);
       if (
@@ -323,6 +328,127 @@ export function CodeEditorPanel({
       editorRef.current = null;
     };
   }, [room]);
+  useEffect(() => {
+    if (!pipecatClient) return;
+
+    const handleServerMessage = async (data: unknown) => {
+      if (!data || typeof data !== "object") return;
+      const msg = data as Record<string, unknown>;
+      const req = (msg.type === "workspace-request" ? msg : msg.data) as
+        | Record<string, unknown>
+        | undefined;
+      if (!req || req.type !== "workspace-request" || req.method !== CODE_RPC_METHOD) {
+        return;
+      }
+
+      const action = req.action;
+      const payload = (req.payload as Record<string, unknown>) ?? {};
+      const requestId = req.requestId as string | undefined;
+
+      const mountedEditor = editorRef.current;
+      const model = mountedEditor?.getModel();
+      if (!mountedEditor || !model) {
+        if (requestId) {
+          await sendWorkspaceError(pipecatClient, requestId, "Code editor is not ready");
+        }
+        return;
+      }
+
+      if (action === "get_range") {
+        const fromLine = Number(payload.fromLine);
+        const requestedToLine = Number(payload.toLine);
+        if (
+          !Number.isInteger(fromLine) ||
+          !Number.isInteger(requestedToLine) ||
+          fromLine < 1 ||
+          requestedToLine < fromLine ||
+          fromLine > model.getLineCount()
+        ) {
+          if (requestId) {
+            await sendWorkspaceError(pipecatClient, requestId, "Invalid code line range");
+          }
+          return;
+        }
+
+        const toLine = Math.min(requestedToLine, model.getLineCount());
+        const range = {
+          startLineNumber: fromLine,
+          startColumn: 1,
+          endLineNumber: toLine,
+          endColumn: model.getLineMaxColumn(toLine),
+        };
+        if (requestId) {
+          await sendWorkspaceResult(pipecatClient, requestId, {
+            ok: true,
+            fromLine,
+            toLine,
+            from: model.getOffsetAt({ lineNumber: fromLine, column: 1 }),
+            to: model.getOffsetAt({
+              lineNumber: toLine,
+              column: model.getLineMaxColumn(toLine),
+            }),
+            text: model.getValueInRange(range),
+          });
+        }
+        return;
+      }
+
+      if (action === "highlight_range") {
+        const fromLine = Number(payload.fromLine);
+        const requestedToLine = Number(payload.toLine);
+        if (
+          !Number.isInteger(fromLine) ||
+          !Number.isInteger(requestedToLine) ||
+          fromLine < 1 ||
+          requestedToLine < fromLine ||
+          fromLine > model.getLineCount()
+        ) {
+          if (requestId) {
+            await sendWorkspaceError(pipecatClient, requestId, "Invalid code line range");
+          }
+          return;
+        }
+
+        const toLine = Math.min(requestedToLine, model.getLineCount());
+        const range = {
+          startLineNumber: fromLine,
+          startColumn: 1,
+          endLineNumber: toLine,
+          endColumn: model.getLineMaxColumn(toLine),
+        };
+        setActiveTab("code");
+        decorationIdsRef.current = mountedEditor.deltaDecorations(
+          decorationIdsRef.current,
+          [
+            {
+              range,
+              options: {
+                isWholeLine: true,
+                inlineClassName: "agent-code-highlight",
+              },
+            },
+          ],
+        );
+        requestAnimationFrame(() => {
+          mountedEditor.layout();
+          mountedEditor.revealRangeInCenter(range);
+        });
+        if (requestId) {
+          await sendWorkspaceResult(pipecatClient, requestId, { ok: true });
+        }
+      }
+    };
+
+    pipecatClient.on(RTVIEvent.ServerMessage, handleServerMessage);
+    return () => {
+      pipecatClient.off(RTVIEvent.ServerMessage, handleServerMessage);
+      const mountedEditor = editorRef.current;
+      if (mountedEditor) {
+        mountedEditor.deltaDecorations(decorationIdsRef.current, []);
+      }
+      decorationIdsRef.current = [];
+    };
+  }, [pipecatClient]);
 
   useEffect(() => {
     function handlePreviewMessage(event: MessageEvent) {
@@ -497,7 +623,7 @@ export function CodeEditorPanel({
               previewConsoleTargetRef.current = null;
               setBrowserConsoleEntries([]);
               setActiveTab("code");
-              onContentChange({ code: nextCode, language });
+              onContentChange?.({ code: nextCode, language });
             }}
             options={{
               minimap: { enabled: false },
@@ -567,7 +693,7 @@ export function CodeEditorPanel({
                   previewConsoleTargetRef.current = null;
                   setBrowserConsoleEntries([]);
                   setActiveTab("code");
-                  onContentChange({ code, language: nextLanguage });
+                  onContentChange?.({ code, language: nextLanguage });
                 }}
                 className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/15"
               >

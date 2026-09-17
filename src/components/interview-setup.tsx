@@ -124,7 +124,7 @@ export function InterviewSetup() {
       version: "v1",
       round: resumeRound,
       config: {
-        highlighted_sections_per_session: 3,
+        highlighted_sections_per_session: 4,
         main_questions_per_section: 1,
         max_follow_ups_per_main: 1,
       },

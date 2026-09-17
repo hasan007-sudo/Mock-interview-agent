@@ -14,16 +14,20 @@ import { AnimatePresence } from 'motion/react';
 /**
  * Props for the AgentChatTranscript component.
  */
+export type ChatTranscriptMessage = {
+  id: string;
+  message: string;
+  timestamp: number;
+  from?: {
+    isLocal?: boolean;
+    identity?: string;
+    name?: string;
+  };
+};
+
 export interface AgentChatTranscriptProps extends ComponentProps<'div'> {
-  /**
-   * The current state of the agent. When 'thinking', displays a loading indicator.
-   */
   agentState?: AgentState;
-  /**
-   * Array of messages to display in the transcript.
-   * @defaultValue []
-   */
-  messages?: ReceivedMessage[];
+  messages?: (ReceivedMessage | ChatTranscriptMessage)[];
   /**
    * Additional CSS class names to apply to the conversation container.
    */

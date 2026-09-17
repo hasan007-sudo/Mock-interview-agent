@@ -6,10 +6,12 @@ export const CONNECTION_STORAGE_KEY = "mock-interview-connection";
 
 export const BaseConnectionDetailsSchema = z
   .object({
-    serverUrl: z.url(),
-    roomName: z.string().min(1),
+    serverUrl: z.string().min(1),
+    roomName: z.string().optional(),
     participantName: z.string().min(1),
-    participantToken: z.string().min(1),
+    participantToken: z.string().optional(),
+    transport: z.enum(["smallwebrtc", "livekit"]).default("smallwebrtc"),
+    requestData: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 

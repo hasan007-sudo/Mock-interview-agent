@@ -1,5 +1,10 @@
 "use client";
 
+import { RTVIEvent, type PipecatClient } from "@pipecat-ai/client-js";
+import {
+  PipecatClientVideo,
+  usePipecatClientMediaTrack,
+} from "@pipecat-ai/client-react";
 import {
   useSessionContext,
   useTrackToggle,
@@ -8,7 +13,7 @@ import {
 import { Track } from "livekit-client";
 import { UserRound } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 function CandidatePlaceholder({ compact }: { compact: boolean }) {
   const reduceMotion = useReducedMotion();
@@ -73,6 +78,93 @@ function CandidateVideo({
 }
 
 export function CandidateTile({
+  name,
+  compact = false,
+  pipecatClient,
+}: {
+  name: string;
+  compact?: boolean;
+  pipecatClient?: PipecatClient;
+}) {
+  if (pipecatClient) {
+    return (
+      <PipecatCandidateTile
+        name={name}
+        compact={compact}
+        client={pipecatClient}
+      />
+    );
+  }
+  return <LiveKitCandidateTile name={name} compact={compact} />;
+}
+
+function PipecatCandidateTile({
+  name,
+  compact,
+  client,
+}: {
+  name: string;
+  compact: boolean;
+  client?: PipecatClient;
+}) {
+  const localVideoTrack = usePipecatClientMediaTrack("video", "local");
+  const localAudioTrack = usePipecatClientMediaTrack("audio", "local");
+  const isMicMuted = localAudioTrack ? !localAudioTrack.enabled : false;
+  const showVideo = Boolean(localVideoTrack && localVideoTrack.enabled);
+  const [audioLevel, setAudioLevel] = useState<number>(0);
+
+  useEffect(() => {
+    if (!client) return;
+    const handleAudioLevel = (level: number) => {
+      setAudioLevel(isMicMuted ? 0 : level);
+    };
+    client.on(RTVIEvent.LocalAudioLevel, handleAudioLevel);
+    return () => {
+      client.off(RTVIEvent.LocalAudioLevel, handleAudioLevel);
+    };
+  }, [client, isMicMuted]);
+
+  return (
+    <div className="session-tile relative h-full overflow-hidden">
+      {showVideo ? (
+        <PipecatClientVideo
+          participant="local"
+          fit="cover"
+          mirror
+          className="absolute inset-0 size-full object-cover"
+        />
+      ) : (
+        <CandidatePlaceholder compact={compact} />
+      )}
+      <div className="absolute bottom-3 left-4 flex items-center gap-2 rounded-md bg-[#0d0915]/80 px-2.5 py-1 text-xs font-medium text-violet-50 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] backdrop-blur-sm">
+        <span>{name}</span>
+        {isMicMuted ? (
+          <span className="text-[10px] text-red-400 font-medium pl-1 border-l border-white/20">
+            Muted
+          </span>
+        ) : (
+          <div
+            className="flex items-center gap-0.5 border-l border-white/20 pl-1.5 h-3"
+            title="Microphone active"
+          >
+            {[0.6, 1.0, 0.7, 0.4].map((mult, idx) => (
+              <span
+                key={idx}
+                className="w-0.5 rounded-full bg-emerald-400 transition-all duration-75"
+                style={{
+                  height: `${Math.max(3, Math.min(14, audioLevel * 25 * mult + (audioLevel > 0.02 ? 4 : 2)))}px`,
+                  opacity: audioLevel > 0.01 ? 1 : 0.35,
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LiveKitCandidateTile({
   name,
   compact = false,
 }: {

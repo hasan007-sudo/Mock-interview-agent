@@ -1,8 +1,10 @@
 "use client";
 
 import { type ReceivedMessage } from "@livekit/components-react";
+import type { PipecatClient } from "@pipecat-ai/client-js";
 import type { Room } from "livekit-client";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import type { ChatTranscriptMessage } from "@/components/agents-ui/agent-chat-transcript";
 import { useState } from "react";
 import { AgentTile } from "@/components/session/agent-tile";
 import { CandidateTile } from "@/components/session/candidate-tile";
@@ -120,9 +122,10 @@ export function SessionComplete({
 
 type SessionLayoutProps = {
   connection: ConnectionDetails;
-  room: Room;
+  room?: Room;
+  pipecatClient?: PipecatClient;
   isConnected: boolean;
-  transcriptMessages: ReceivedMessage[];
+  transcriptMessages: (ReceivedMessage | ChatTranscriptMessage)[];
   surface: ActiveSurface;
   isScreenSharing: boolean;
   isScreenSharePending: boolean;
@@ -149,11 +152,13 @@ type SessionLayoutProps = {
     blob: Blob;
     imageSha256: string;
   }) => Promise<boolean>;
+  onSendChatMessage?: (text: string) => void;
 };
 
 export function SessionLayout({
   connection,
   room,
+  pipecatClient,
   isConnected,
   transcriptMessages,
   surface,
@@ -170,6 +175,7 @@ export function SessionLayout({
   onCodeSubmit,
   onMcqSubmit,
   onWhiteboardSubmit,
+  onSendChatMessage,
 }: SessionLayoutProps) {
   const reduceMotion = useReducedMotion();
   const [isTranscriptOpen, setIsTranscriptOpen] = useState(false);
@@ -257,6 +263,7 @@ export function SessionLayout({
                   {surface.kind === "code" ? (
                     <CodeEditorPanel
                       room={room}
+                      pipecatClient={pipecatClient}
                       question={surface.question}
                       initialLanguage={surface.language}
                       initialCode={surface.starterCode}
@@ -277,6 +284,7 @@ export function SessionLayout({
                   ) : (
                     <WhiteboardPanel
                       room={room}
+                      pipecatClient={pipecatClient}
                       question={surface.question}
                       locked={isWhiteboardLocked}
                       status={whiteboardStatus}
@@ -296,12 +304,13 @@ export function SessionLayout({
               className="interview-participants min-h-0 gap-4"
             >
               <motion.div layout transition={layoutTransition} className="min-h-0">
-                <AgentTile compact={hasSurface} />
+                <AgentTile compact={hasSurface} pipecatClient={pipecatClient} />
               </motion.div>
               <motion.div layout transition={layoutTransition} className="min-h-0">
                 <CandidateTile
                   name={connection.participantName}
                   compact={hasSurface}
+                  pipecatClient={pipecatClient}
                 />
               </motion.div>
             </motion.div>
@@ -334,6 +343,8 @@ export function SessionLayout({
                 <TranscriptSidebar
                   messages={transcriptMessages}
                   onClose={() => setIsTranscriptOpen(false)}
+                  pipecatClient={pipecatClient}
+                  onSendMessage={onSendChatMessage}
                 />
               </motion.div>
             </>
@@ -346,6 +357,7 @@ export function SessionLayout({
         isTranscriptOpen={isTranscriptOpen}
         onDisconnect={onDisconnect}
         onTranscriptOpenChange={setIsTranscriptOpen}
+        pipecatClient={pipecatClient}
       />
     </div>
   );

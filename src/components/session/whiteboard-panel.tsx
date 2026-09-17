@@ -3,9 +3,11 @@
 import "@excalidraw/excalidraw/index.css";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import dynamic from "next/dynamic";
+import { PipecatClient, RTVIEvent } from "@pipecat-ai/client-js";
 import { ParticipantKind, RpcError, type Room } from "livekit-client";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { sendWorkspaceError, sendWorkspaceResult } from "@/lib/pipecat";
 
 const WHITEBOARD_RPC_METHOD = "workspace.whiteboard";
 const PUBLISH_ON_BEHALF_ATTRIBUTE = "lk.publish_on_behalf";
@@ -26,6 +28,7 @@ const Excalidraw = dynamic(
 
 export function WhiteboardPanel({
   room,
+  pipecatClient,
   question,
   locked,
   status,
@@ -33,7 +36,8 @@ export function WhiteboardPanel({
   onSubmit,
   onClose,
 }: {
-  room: Room;
+  room?: Room;
+  pipecatClient?: PipecatClient;
   question: string;
   locked: boolean;
   status: "idle" | "uploading" | "received" | "analyzing" | "ready" | "error";
@@ -41,6 +45,7 @@ export function WhiteboardPanel({
   onSubmit: (submission: {
     blob: Blob;
     imageSha256: string;
+    components?: string[];
   }) => Promise<boolean>;
   onClose: () => void;
 }) {
@@ -50,6 +55,7 @@ export function WhiteboardPanel({
   const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
+    if (!room) return;
     room.registerRpcMethod(WHITEBOARD_RPC_METHOD, async (invocation) => {
       const caller = room.remoteParticipants.get(invocation.callerIdentity);
       if (
@@ -114,6 +120,82 @@ export function WhiteboardPanel({
       room.unregisterRpcMethod(WHITEBOARD_RPC_METHOD);
     };
   }, [excalidrawApi, room]);
+  useEffect(() => {
+    if (!pipecatClient || !excalidrawApi) return;
+
+    const handleServerMessage = async (data: unknown) => {
+      if (!data || typeof data !== "object") return;
+      const msg = data as Record<string, unknown>;
+      const req = (msg.type === "workspace-request" ? msg : msg.data) as
+        | Record<string, unknown>
+        | undefined;
+      if (!req || req.type !== "workspace-request") return;
+
+      const method = req.method;
+      if (method !== WHITEBOARD_RPC_METHOD && method !== "workspace.canvas") {
+        return;
+      }
+
+      const action = req.action;
+      const payload = (req.payload as Record<string, unknown>) ?? {};
+      const requestId = req.requestId as string | undefined;
+
+      if (action === "highlight_component") {
+        const componentLabel = payload.componentLabel;
+        if (typeof componentLabel !== "string" || !componentLabel.trim()) {
+          if (requestId) {
+            await sendWorkspaceError(pipecatClient, requestId, "Missing component label");
+          }
+          return;
+        }
+
+        const requestedLabel = normalizeLabel(componentLabel);
+        const elements = excalidrawApi.getSceneElements();
+        const textElement = elements.find((element) => {
+          if (element.type !== "text") return false;
+          const visibleLabel = normalizeLabel(element.originalText || element.text);
+          return (
+            visibleLabel === requestedLabel ||
+            visibleLabel.includes(requestedLabel) ||
+            requestedLabel.includes(visibleLabel)
+          );
+        });
+        if (!textElement || textElement.type !== "text") {
+          if (requestId) {
+            await sendWorkspaceError(
+              pipecatClient,
+              requestId,
+              "Whiteboard component label was not found",
+            );
+          }
+          return;
+        }
+
+        const selectedIds: Record<string, true> = { [textElement.id]: true };
+        if (textElement.containerId) selectedIds[textElement.containerId] = true;
+        const selectedElements = elements.filter((element) => selectedIds[element.id]);
+        excalidrawApi.updateScene({
+          appState: { selectedElementIds: selectedIds },
+        });
+        excalidrawApi.scrollToContent(selectedElements, {
+          animate: true,
+          fitToContent: true,
+        });
+        if (requestId) {
+          await sendWorkspaceResult(pipecatClient, requestId, {
+            ok: true,
+            componentLabel: textElement.text,
+          });
+        }
+        return;
+      }
+    };
+
+    pipecatClient.on(RTVIEvent.ServerMessage, handleServerMessage);
+    return () => {
+      pipecatClient.off(RTVIEvent.ServerMessage, handleServerMessage);
+    };
+  }, [excalidrawApi, pipecatClient]);
 
   async function handleDone() {
     if (!excalidrawApi || locked || isExporting) return;
@@ -149,7 +231,15 @@ export function WhiteboardPanel({
       )
         .map((byte) => byte.toString(16).padStart(2, "0"))
         .join("");
-      await onSubmit({ blob, imageSha256 });
+      const components = Array.from(
+        new Set(
+          elements
+            .filter((el) => el.type === "text" && "text" in el && typeof el.text === "string" && el.text.trim())
+            .map((el) => (el as { text: string }).text.trim())
+            .filter(Boolean),
+        ),
+      );
+      await onSubmit({ blob, imageSha256, components });
     } catch (error) {
       console.error("Failed to export whiteboard:", error);
       toast.error("Could not prepare the whiteboard image. Please try again.");

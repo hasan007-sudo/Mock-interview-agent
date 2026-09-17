@@ -109,6 +109,27 @@ export async function POST(request: Request) {
       },
     });
   }
+  const pipecatUrl = process.env.PIPECAT_AGENT_URL ?? "http://localhost:7860";
+  if (process.env.USE_LIVEKIT !== "true") {
+    return Response.json({
+      serverUrl: pipecatUrl,
+      roomName: `session_${Date.now()}`,
+      participantName: name,
+      transport: "smallwebrtc",
+      requestData: {
+        candidateName: name,
+        candidate_name: name,
+        // In backend mode `questions` is undefined on purpose: the agent builds
+        // the plan from the Chroma question bank. Sending defaults would override it.
+        ...(questions ? { questions } : {}),
+        maxFollowUpsPerQuestion: Number(body?.maxFollowUpsPerQuestion ?? 1),
+        minWhiteboardFollowUps: Number(body?.minWhiteboardFollowUps ?? 2),
+        resumeMarkdown,
+        resume_markdown: resumeMarkdown,
+        opening: opening ?? null,
+      },
+    });
+  }
 
   try {
     const { url, agentName } = getLiveKitCredentials();
@@ -136,6 +157,7 @@ export async function POST(request: Request) {
       roomName,
       participantName: name,
       participantToken,
+      transport: "livekit",
     });
   } catch (error) {
     console.error("Failed to create connection details:", error);
